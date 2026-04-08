@@ -4,11 +4,42 @@ Barebones, no-UI issue tracker. REST API + MCP server. Designed for AI agents an
 
 ## Quick Start
 
+### Docker (recommended)
+
 ```bash
-cp .env.example .env        # configure
+# Clone and configure
+git clone https://github.com/martin2844/slab.git
+cd slab
+cp .env.example .env
+# Edit .env — set TRACKER_API_KEY to a real secret
+
+# Start REST API + MCP server
+docker compose up -d
+```
+
+This starts:
+- **REST API** on port 3000 (configurable via `PORT` in `.env`)
+- **MCP server** on port 3001 (configurable via `TRACKER_MCP_PORT`)
+
+### Without Docker
+
+```bash
+cp .env.example .env
 npm install
-npm run dev                  # REST API on :3000
-npm run mcp                  # MCP server on :3001
+npm run dev          # REST API on :3000
+npm run mcp          # MCP server on :3001 (in another terminal)
+```
+
+### Pull the image directly
+
+```bash
+docker pull martin2844/slab:latest
+docker run -d \
+  -p 3000:3000 \
+  -p 3001:3001 \
+  -e TRACKER_API_KEY=your-secret-key \
+  -v slab-data:/data \
+  martin2844/slab:latest
 ```
 
 ## REST API
@@ -56,18 +87,18 @@ curl http://localhost:3000/api/issues/MYAPP-1/history \
 
 ## MCP Integration
 
+Slab exposes a full MCP server so AI agents can create, query, and manage issues directly.
+
 The MCP server supports two transport modes:
 
 ### HTTP Mode (remote access, default)
 
 Runs on port 3001. Supports both modern StreamableHTTP and legacy SSE transports.
 
-**StreamableHTTP** (recommended):
-- `POST/GET/DELETE http://your-server:3001/mcp`
-
-**SSE** (legacy fallback):
-- `GET http://your-server:3001/sse`
-- `POST http://your-server:3001/messages`
+| Transport | Protocol | Endpoints |
+|-----------|----------|-----------|
+| **StreamableHTTP** (recommended) | 2025-11-25 | `POST/GET/DELETE /mcp` |
+| **SSE** (legacy fallback) | 2024-11-05 | `GET /sse`, `POST /messages` |
 
 ### Stdio Mode (local CLI)
 
@@ -77,23 +108,31 @@ TRACKER_MCP_MODE=stdio npm run mcp
 
 ### Claude Code Configuration
 
-Add to your Claude Code MCP settings (`~/.claude/settings.json` or project `.claude/settings.json`):
+Add to your Claude Code settings. Open settings with `/settings` or edit directly:
 
-**Remote server (HTTP):**
+**Project-level** (`.claude/settings.json` in your project):
 ```json
 {
   "mcpServers": {
     "slab": {
-      "url": "http://your-server:3001/mcp",
-      "headers": {
-        "Authorization": "Bearer your-api-key"
-      }
+      "url": "http://your-server:3001/mcp"
     }
   }
 }
 ```
 
-**Local (stdio):**
+**User-level** (`~/.claude/settings.json`) — makes slab available in all projects:
+```json
+{
+  "mcpServers": {
+    "slab": {
+      "url": "http://your-server:3001/mcp"
+    }
+  }
+}
+```
+
+**Local stdio** (slab runs on the same machine):
 ```json
 {
   "mcpServers": {
@@ -102,12 +141,20 @@ Add to your Claude Code MCP settings (`~/.claude/settings.json` or project `.cla
       "args": ["tsx", "/path/to/slab/src/mcp/server.ts"],
       "env": {
         "TRACKER_MCP_MODE": "stdio",
-        "TRACKER_API_KEY": "your-api-key"
+        "TRACKER_API_KEY": "your-secret-key"
       }
     }
   }
 }
 ```
+
+Once configured, Claude Code can use slab tools directly:
+- "Create a project called MYAPP"
+- "Add a bug for the login issue"
+- "What issues are assigned to me?"
+- "Link MYAPP-1 as blocking MYAPP-2"
+- "Show me all blocked issues"
+- "Update MYAPP-3 to done"
 
 ### Cursor Configuration
 
@@ -122,6 +169,10 @@ Add to `.cursor/mcp.json`:
   }
 }
 ```
+
+### Any MCP Client
+
+The MCP endpoint is at `http://your-server:3001/mcp`. Connect any MCP-compatible client using the StreamableHTTP transport.
 
 ## MCP Tools
 
@@ -145,12 +196,22 @@ Add to `.cursor/mcp.json`:
 | `unlink_issues` | Remove a link |
 | `get_issue_history` | Get change audit trail |
 
+## Configuration
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PORT` | `3000` | REST API port |
+| `TRACKER_API_KEY` | `dev-key-change-me` | API key for auth |
+| `TRACKER_MCP_PORT` | `3001` | MCP server port |
+| `TRACKER_MCP_MODE` | `http` | `http` for remote, `stdio` for local |
+| `TRACKER_DB_PATH` | `./slab.db` | SQLite database path |
+
 ## Development
 
 ```bash
 npm run dev          # REST server with hot reload
 npm run mcp          # MCP server
-npm test             # Run tests
+npm test             # Run tests (58 tests)
 npm run test:watch   # Watch mode
 npm run build        # Compile TypeScript
 ```
@@ -172,3 +233,7 @@ src/
   mcp/
     server.ts           MCP server (HTTP + stdio)
 ```
+
+## License
+
+MIT

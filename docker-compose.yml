@@ -1,0 +1,30 @@
+services:
+  slab-api:
+    image: martin2844/slab:latest
+    build: .
+    ports:
+      - "${PORT:-3000}:3000"
+    environment:
+      - PORT=3000
+      - TRACKER_API_KEY=${TRACKER_API_KEY:-dev-key-change-me}
+      - TRACKER_DB_PATH=/data/slab.db
+    volumes:
+      - slab-data:/data
+    restart: unless-stopped
+
+  slab-mcp:
+    image: martin2844/slab:latest
+    command: ["npx", "tsx", "src/mcp/server.ts"]
+    ports:
+      - "${TRACKER_MCP_PORT:-3001}:3001"
+    environment:
+      - TRACKER_MCP_PORT=3001
+      - TRACKER_MCP_MODE=http
+      - TRACKER_API_KEY=${TRACKER_API_KEY:-dev-key-change-me}
+      - TRACKER_DB_PATH=/data/slab.db
+    volumes:
+      - slab-data:/data
+    restart: unless-stopped
+
+volumes:
+  slab-data:
