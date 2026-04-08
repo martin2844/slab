@@ -115,6 +115,7 @@ Add to your Claude Code settings. Open settings with `/settings` or edit directl
 {
   "mcpServers": {
     "slab": {
+      "type": "http",
       "url": "http://your-server:3001/mcp"
     }
   }
@@ -126,6 +127,7 @@ Add to your Claude Code settings. Open settings with `/settings` or edit directl
 {
   "mcpServers": {
     "slab": {
+      "type": "http",
       "url": "http://your-server:3001/mcp"
     }
   }
@@ -137,6 +139,7 @@ Add to your Claude Code settings. Open settings with `/settings` or edit directl
 {
   "mcpServers": {
     "slab": {
+      "type": "stdio",
       "command": "npx",
       "args": ["tsx", "/path/to/slab/src/mcp/server.ts"],
       "env": {
