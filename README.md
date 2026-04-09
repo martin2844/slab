@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="slab.png" alt="Slab" width="120" />
+<img src="slab.png" alt="Slab" width="100%" />
 
 # Slab
 
