@@ -4,6 +4,8 @@
 
 **Headless issue tracking for AI-native workflows**
 
+*Flat, bare, no-UI. Just the raw surface.*
+
 REST API + MCP server. No UI. Built for agents, CLI tools, and automation.
 
 [![GitHub license](https://img.shields.io/github/license/martin2844/slab?color=blue)](https://github.com/martin2844/slab/blob/master/LICENSE)
