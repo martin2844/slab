@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="slab.png" alt="Slab" width="120" />
+
 # Slab
 
 **Headless issue tracking for AI-native workflows**
