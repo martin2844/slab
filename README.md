@@ -128,44 +128,18 @@ Slab exposes a full MCP server so AI agents can create, query, and manage issues
 
 ### Claude Code
 
-Add to your settings (`/settings` in Claude Code, or edit directly):
+One command:
+```bash
+claude mcp add --transport http slab http://localhost:6969/mcp
+```
 
-**Project-level** (`.claude/settings.json`):
+Or add to `~/.claude/settings.json` manually:
 ```json
 {
   "mcpServers": {
     "slab": {
       "type": "http",
-      "url": "http://your-server:6969/mcp"
-    }
-  }
-}
-```
-
-**Global** (`~/.claude/settings.json`) — available in all projects:
-```json
-{
-  "mcpServers": {
-    "slab": {
-      "type": "http",
-      "url": "http://your-server:6969/mcp"
-    }
-  }
-}
-```
-
-**Local stdio**:
-```json
-{
-  "mcpServers": {
-    "slab": {
-      "type": "stdio",
-      "command": "npx",
-      "args": ["tsx", "/path/to/slab/src/mcp/server.ts"],
-      "env": {
-        "TRACKER_MCP_MODE": "stdio",
-        "TRACKER_API_KEY": "your-secret-key"
-      }
+      "url": "http://localhost:6969/mcp"
     }
   }
 }
@@ -173,13 +147,55 @@ Add to your settings (`/settings` in Claude Code, or edit directly):
 
 ### Cursor
 
-Add to `.cursor/mcp.json`:
+Add to `.cursor/mcp.json` in your project root:
 ```json
 {
   "mcpServers": {
     "slab": {
       "type": "http",
-      "url": "http://your-server:6969/mcp"
+      "url": "http://localhost:6969/mcp"
+    }
+  }
+}
+```
+
+### Codex CLI (OpenAI)
+
+Add to `~/.codex/mcp.json`:
+```json
+{
+  "mcpServers": {
+    "slab": {
+      "type": "http",
+      "url": "http://localhost:6969/mcp"
+    }
+  }
+}
+```
+
+### Cline / Roo Code (VS Code)
+
+In VS Code settings, search for "Cline MCP" and add:
+```json
+{
+  "mcpServers": {
+    "slab": {
+      "type": "http",
+      "url": "http://localhost:6969/mcp"
+    }
+  }
+}
+```
+
+### Windsurf
+
+Add to `.windsurf/mcp.json`:
+```json
+{
+  "mcpServers": {
+    "slab": {
+      "type": "http",
+      "url": "http://localhost:6969/mcp"
     }
   }
 }
