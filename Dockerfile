@@ -22,10 +22,10 @@ COPY src/db/migrations ./dist/db/migrations
 COPY src/ ./src/
 
 ENV NODE_ENV=production
-ENV PORT=3000
-ENV TRACKER_MCP_PORT=3001
+ENV PORT=6970
+ENV TRACKER_MCP_PORT=6969
 
-EXPOSE 3000 3001
+EXPOSE 6969 6970
 
 # Default: REST API. Override command for MCP server.
 CMD ["node", "dist/index.js"]

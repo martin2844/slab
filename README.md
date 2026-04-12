@@ -46,18 +46,42 @@ No dashboards. No boards. No sprints. Just a clean API that lets your tools trac
 
 ### Docker (recommended)
 
+The image runs **both** the REST API and MCP server in a single container. Two ports are exposed:
+
+| Port | Service | Purpose |
+|------|---------|---------|
+| `6969` | MCP server | AI agent integration (Claude Code, Cursor, etc.) |
+| `6970` | REST API | Direct HTTP API access |
+
+#### Option 1: Single container (both services)
+
 ```bash
+# Pull the image
 docker pull martin2844/slab:latest
 
+# Run REST API (default entrypoint)
 docker run -d \
-  -p 3000:3000 \
-  -p 3001:3001 \
+  --name slab-api \
+  -p 6970:6970 \
   -e TRACKER_API_KEY=your-secret-key \
   -v slab-data:/data \
   martin2844/slab:latest
+
+# Run MCP server (override the default command)
+docker run -d \
+  --name slab-mcp \
+  -p 6969:6969 \
+  -e TRACKER_MCP_PORT=6969 \
+  -e TRACKER_MCP_MODE=http \
+  -e TRACKER_API_KEY=your-secret-key \
+  -v slab-data:/data \
+  martin2844/slab:latest \
+  npx tsx src/mcp/server.ts
 ```
 
-Or with docker-compose:
+Both containers share the same `slab-data` volume so they use the same database.
+
+#### Option 2: docker-compose (one command)
 
 ```bash
 git clone https://github.com/martin2844/slab.git
@@ -68,8 +92,10 @@ docker compose up -d
 ```
 
 This starts:
-- **REST API** on port `3000`
-- **MCP server** on port `3001`
+- **REST API** on port `6970`
+- **MCP server** on port `6969`
+
+Both services share a persistent SQLite database via a Docker volume.
 
 ### From Source
 
@@ -77,14 +103,14 @@ This starts:
 git clone https://github.com/martin2844/slab.git
 cd slab
 npm install
-npm run dev          # REST API on :3000
-npm run mcp          # MCP server on :3001
+npm run dev          # REST API on :6970
+npm run mcp          # MCP server on :6969
 ```
 
 ### Verify
 
 ```bash
-curl http://localhost:3000/health
+curl http://localhost:6970/health
 # {"status":"ok"}
 ```
 
@@ -96,7 +122,7 @@ Slab exposes a full MCP server so AI agents can create, query, and manage issues
 
 | Transport | Protocol | Endpoints |
 |-----------|----------|-----------|
-| **StreamableHTTP** | 2025-11-25 | `POST / GET / DELETE http://host:3001/mcp` |
+| **StreamableHTTP** | 2025-11-25 | `POST / GET / DELETE http://host:6969/mcp` |
 | **SSE** (legacy) | 2024-11-05 | `GET /sse`, `POST /messages` |
 | **Stdio** | — | Local process, for CLI tools |
 
@@ -110,7 +136,7 @@ Add to your settings (`/settings` in Claude Code, or edit directly):
   "mcpServers": {
     "slab": {
       "type": "http",
-      "url": "http://your-server:3001/mcp"
+      "url": "http://your-server:6969/mcp"
     }
   }
 }
@@ -122,7 +148,7 @@ Add to your settings (`/settings` in Claude Code, or edit directly):
   "mcpServers": {
     "slab": {
       "type": "http",
-      "url": "http://your-server:3001/mcp"
+      "url": "http://your-server:6969/mcp"
     }
   }
 }
@@ -153,7 +179,7 @@ Add to `.cursor/mcp.json`:
   "mcpServers": {
     "slab": {
       "type": "http",
-      "url": "http://your-server:3001/mcp"
+      "url": "http://your-server:6969/mcp"
     }
   }
 }
@@ -259,26 +285,26 @@ Lists include pagination:
 
 ```bash
 # Create a project
-curl -X POST http://localhost:3000/api/projects \
+curl -X POST http://localhost:6970/api/projects \
   -H "X-API-Key: your-key" -H "Content-Type: application/json" \
   -d '{"key":"MYAPP","name":"My App"}'
 
 # Create a bug
-curl -X POST http://localhost:3000/api/projects/MYAPP/issues \
+curl -X POST http://localhost:6970/api/projects/MYAPP/issues \
   -H "X-API-Key: your-key" -H "Content-Type: application/json" \
   -d '{"type":"bug","title":"Login broken","priority":"high","labels":["auth"]}'
 
 # Start working on it
-curl -X PATCH http://localhost:3000/api/issues/MYAPP-1 \
+curl -X PATCH http://localhost:6970/api/issues/MYAPP-1 \
   -H "X-API-Key: your-key" -H "Content-Type: application/json" \
   -d '{"status":"in_progress","assignee":"alice"}'
 
 # List open issues
-curl "http://localhost:3000/api/projects/MYAPP/issues?status=new,in_progress" \
+curl "http://localhost:6970/api/projects/MYAPP/issues?status=new,in_progress" \
   -H "X-API-Key: your-key"
 
 # Search
-curl "http://localhost:3000/api/search?q=login" \
+curl "http://localhost:6970/api/search?q=login" \
   -H "X-API-Key: your-key"
 ```
 
@@ -286,9 +312,9 @@ curl "http://localhost:3000/api/search?q=login" \
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `PORT` | `3000` | REST API port |
+| `PORT` | `6970` | REST API port |
 | `TRACKER_API_KEY` | `dev-key-change-me` | API key for authentication |
-| `TRACKER_MCP_PORT` | `3001` | MCP server port (HTTP mode) |
+| `TRACKER_MCP_PORT` | `6969` | MCP server port (HTTP mode) |
 | `TRACKER_MCP_MODE` | `http` | `http` for remote, `stdio` for local CLI |
 | `TRACKER_DB_PATH` | `./slab.db` | SQLite database file path |
 

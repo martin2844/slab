@@ -34,7 +34,7 @@ app.route('/api/issues', historyRoutes);              // /:key/history
 app.route('/api/issues', issueCrudRoutes);            // GET/PATCH/DELETE /:key
 
 // Run migrations and start server
-const PORT = parseInt(process.env.PORT || process.env.TRACKER_PORT || '3000');
+const PORT = parseInt(process.env.PORT || process.env.TRACKER_PORT || '6970');
 
 runMigrations();
 

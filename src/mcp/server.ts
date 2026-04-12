@@ -288,7 +288,7 @@ function createMcpServer(): McpServer {
 
 // ── Transport Selection ────────────────────────────────────
 
-const MCP_PORT = parseInt(process.env.TRACKER_MCP_PORT || '3001');
+const MCP_PORT = parseInt(process.env.TRACKER_MCP_PORT || '6969');
 const MCP_MODE = process.env.TRACKER_MCP_MODE || 'http'; // 'http' | 'stdio'
 
 if (MCP_MODE === 'stdio') {
