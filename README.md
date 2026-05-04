@@ -201,6 +201,25 @@ Add to `.windsurf/mcp.json`:
 }
 ```
 
+### Kimi Code CLI
+
+One command:
+```bash
+kimi mcp add --transport http slab http://localhost:6969/mcp
+```
+
+Or add to `~/.kimi/mcp.json` manually:
+```json
+{
+  "mcpServers": {
+    "slab": {
+      "transport": "http",
+      "url": "http://localhost:6969/mcp"
+    }
+  }
+}
+```
+
 ### Available Tools
 
 | Tool | Description |
