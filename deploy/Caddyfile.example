@@ -1,0 +1,12 @@
+# Replace these hostnames with DNS records pointing to the VPS.
+api.slab.example.com {
+    encode zstd gzip
+    reverse_proxy 127.0.0.1:6970
+}
+
+mcp.slab.example.com {
+    encode zstd gzip
+    reverse_proxy 127.0.0.1:6969 {
+        flush_interval -1
+    }
+}

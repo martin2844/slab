@@ -12,20 +12,22 @@ RUN npm run build
 FROM node:22-alpine
 
 WORKDIR /app
+RUN apk add --no-cache su-exec
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 
 COPY --from=build /app/dist ./dist
 COPY src/db/migrations ./dist/db/migrations
 
-# Copy src for tsx-based MCP entrypoint
-COPY src/ ./src/
+RUN mkdir -p /data && chown node:node /data
+COPY --chmod=755 docker-entrypoint.slab.sh /usr/local/bin/docker-entrypoint.slab.sh
 
 ENV NODE_ENV=production
 ENV PORT=6970
 ENV TRACKER_MCP_PORT=6969
+ENV TRACKER_DB_PATH=/data/slab.db
 
 EXPOSE 6969 6970
 
-# Default: REST API. Override command for MCP server.
+ENTRYPOINT ["docker-entrypoint.slab.sh"]
 CMD ["node", "dist/index.js"]

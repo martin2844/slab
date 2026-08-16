@@ -1,6 +1,8 @@
 node_modules/
 dist/
+coverage/
 slab.db
 slab.db-wal
 slab.db-shm
 .env
+backups/

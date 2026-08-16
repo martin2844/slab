@@ -13,8 +13,8 @@ REST API + MCP server. No UI. Built for agents, CLI tools, and automation.
 [![GitHub license](https://img.shields.io/github/license/martin2844/slab?color=blue)](https://github.com/martin2844/slab/blob/master/LICENSE)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D22-green.svg)](https://nodejs.org/)
 [![Docker Pulls](https://img.shields.io/docker/pulls/martin2844/slab.svg)](https://hub.docker.com/r/martin2844/slab)
-[![Tests](https://img.shields.io/badge/tests-58%20passing-brightgreen)](https://github.com/martin2844/slab)
-[![Coverage](https://img.shields.io/badge/coverage-90%25-brightgreen)](https://github.com/martin2844/slab)
+[![Tests](https://img.shields.io/badge/tests-70%20passing-brightgreen)](https://github.com/martin2844/slab)
+[![Coverage](https://img.shields.io/badge/coverage-89%25-brightgreen)](https://github.com/martin2844/slab)
 
 [Getting Started](#getting-started) · [MCP Integration](#mcp-integration) · [REST API](#rest-api) · [Configuration](#configuration) · [Architecture](#architecture)
 
@@ -46,14 +46,14 @@ No dashboards. No boards. No sprints. Just a clean API that lets your tools trac
 
 ### Docker (recommended)
 
-The image runs **both** the REST API and MCP server in a single container. Two ports are exposed:
+The image can run the REST API or MCP server. Compose starts one container for each process; both share the same persistent database volume.
 
 | Port | Service | Purpose |
 |------|---------|---------|
 | `6969` | MCP server | AI agent integration (Claude Code, Cursor, etc.) |
 | `6970` | REST API | Direct HTTP API access |
 
-#### Option 1: Single container (both services)
+#### Option 1: Run the two services directly
 
 ```bash
 # Pull the image
@@ -62,21 +62,21 @@ docker pull martin2844/slab:latest
 # Run REST API (default entrypoint)
 docker run -d \
   --name slab-api \
-  -p 6970:6970 \
-  -e TRACKER_API_KEY=your-secret-key \
+  -p 127.0.0.1:6970:6970 \
+  -e TRACKER_API_KEY=replace-with-your-32-byte-random-secret \
   -v slab-data:/data \
   martin2844/slab:latest
 
 # Run MCP server (override the default command)
 docker run -d \
   --name slab-mcp \
-  -p 6969:6969 \
+  -p 127.0.0.1:6969:6969 \
   -e TRACKER_MCP_PORT=6969 \
   -e TRACKER_MCP_MODE=http \
-  -e TRACKER_API_KEY=your-secret-key \
+  -e TRACKER_API_KEY=replace-with-your-32-byte-random-secret \
   -v slab-data:/data \
   martin2844/slab:latest \
-  npx tsx src/mcp/server.ts
+  node dist/mcp/server.js
 ```
 
 Both containers share the same `slab-data` volume so they use the same database.
@@ -87,8 +87,8 @@ Both containers share the same `slab-data` volume so they use the same database.
 git clone https://github.com/martin2844/slab.git
 cd slab
 cp .env.example .env
-# Edit TRACKER_API_KEY in .env
-docker compose up -d
+sed -i "s|^TRACKER_API_KEY=.*|TRACKER_API_KEY=$(openssl rand -hex 32)|" .env
+docker compose up -d --build
 ```
 
 This starts:
@@ -103,6 +103,7 @@ Both services share a persistent SQLite database via a Docker volume.
 git clone https://github.com/martin2844/slab.git
 cd slab
 npm install
+export TRACKER_API_KEY="$(openssl rand -hex 32)"
 npm run dev          # REST API on :6970
 npm run mcp          # MCP server on :6969
 ```
@@ -118,6 +119,9 @@ curl http://localhost:6970/health
 
 Slab exposes a full MCP server so AI agents can create, query, and manage issues directly — no REST calls needed.
 
+Remote MCP requests require the same secret as the REST API. Send it either as
+`Authorization: Bearer <TRACKER_API_KEY>` or `X-API-Key: <TRACKER_API_KEY>`.
+
 ### Transport
 
 | Transport | Protocol | Endpoints |
@@ -128,18 +132,14 @@ Slab exposes a full MCP server so AI agents can create, query, and manage issues
 
 ### Claude Code
 
-One command:
-```bash
-claude mcp add --transport http slab http://localhost:6969/mcp
-```
-
-Or add to `~/.claude/settings.json` manually:
+Add to `~/.claude/settings.json`:
 ```json
 {
   "mcpServers": {
     "slab": {
       "type": "http",
-      "url": "http://localhost:6969/mcp"
+      "url": "https://mcp.slab.example.com/mcp",
+      "headers": { "X-API-Key": "replace-with-your-32-byte-random-secret" }
     }
   }
 }
@@ -153,7 +153,8 @@ Add to `.cursor/mcp.json` in your project root:
   "mcpServers": {
     "slab": {
       "type": "http",
-      "url": "http://localhost:6969/mcp"
+      "url": "https://mcp.slab.example.com/mcp",
+      "headers": { "X-API-Key": "replace-with-your-32-byte-random-secret" }
     }
   }
 }
@@ -161,17 +162,15 @@ Add to `.cursor/mcp.json` in your project root:
 
 ### Codex CLI (OpenAI)
 
-Add to `~/.codex/mcp.json`:
-```json
-{
-  "mcpServers": {
-    "slab": {
-      "type": "http",
-      "url": "http://localhost:6969/mcp"
-    }
-  }
-}
+Set `SLAB_API_KEY` in the environment that starts Codex, then add this to
+`~/.codex/config.toml` (or a trusted project's `.codex/config.toml`):
+```toml
+[mcp_servers.slab]
+url = "https://mcp.slab.example.com/mcp"
+bearer_token_env_var = "SLAB_API_KEY"
 ```
+
+See the [official Codex MCP configuration](https://developers.openai.com/codex/mcp).
 
 ### Cline / Roo Code (VS Code)
 
@@ -181,7 +180,8 @@ In VS Code settings, search for "Cline MCP" and add:
   "mcpServers": {
     "slab": {
       "type": "http",
-      "url": "http://localhost:6969/mcp"
+      "url": "https://mcp.slab.example.com/mcp",
+      "headers": { "X-API-Key": "replace-with-your-32-byte-random-secret" }
     }
   }
 }
@@ -195,7 +195,8 @@ Add to `.windsurf/mcp.json`:
   "mcpServers": {
     "slab": {
       "type": "http",
-      "url": "http://localhost:6969/mcp"
+      "url": "https://mcp.slab.example.com/mcp",
+      "headers": { "X-API-Key": "replace-with-your-32-byte-random-secret" }
     }
   }
 }
@@ -203,18 +204,14 @@ Add to `.windsurf/mcp.json`:
 
 ### Kimi Code CLI
 
-One command:
-```bash
-kimi mcp add --transport http slab http://localhost:6969/mcp
-```
-
-Or add to `~/.kimi/mcp.json` manually:
+Add to `~/.kimi/mcp.json`:
 ```json
 {
   "mcpServers": {
     "slab": {
       "transport": "http",
-      "url": "http://localhost:6969/mcp"
+      "url": "https://mcp.slab.example.com/mcp",
+      "headers": { "X-API-Key": "replace-with-your-32-byte-random-secret" }
     }
   }
 }
@@ -321,26 +318,26 @@ Lists include pagination:
 ```bash
 # Create a project
 curl -X POST http://localhost:6970/api/projects \
-  -H "X-API-Key: your-key" -H "Content-Type: application/json" \
+  -H "X-API-Key: $TRACKER_API_KEY" -H "Content-Type: application/json" \
   -d '{"key":"MYAPP","name":"My App"}'
 
 # Create a bug
 curl -X POST http://localhost:6970/api/projects/MYAPP/issues \
-  -H "X-API-Key: your-key" -H "Content-Type: application/json" \
+  -H "X-API-Key: $TRACKER_API_KEY" -H "Content-Type: application/json" \
   -d '{"type":"bug","title":"Login broken","priority":"high","labels":["auth"]}'
 
 # Start working on it
 curl -X PATCH http://localhost:6970/api/issues/MYAPP-1 \
-  -H "X-API-Key: your-key" -H "Content-Type: application/json" \
+  -H "X-API-Key: $TRACKER_API_KEY" -H "Content-Type: application/json" \
   -d '{"status":"in_progress","assignee":"alice"}'
 
 # List open issues
 curl "http://localhost:6970/api/projects/MYAPP/issues?status=new,in_progress" \
-  -H "X-API-Key: your-key"
+  -H "X-API-Key: $TRACKER_API_KEY"
 
 # Search
 curl "http://localhost:6970/api/search?q=login" \
-  -H "X-API-Key: your-key"
+  -H "X-API-Key: $TRACKER_API_KEY"
 ```
 
 ## Configuration
@@ -348,10 +345,95 @@ curl "http://localhost:6970/api/search?q=login" \
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `PORT` | `6970` | REST API port |
-| `TRACKER_API_KEY` | `dev-key-change-me` | API key for authentication |
+| `TRACKER_API_KEY` | required | Authentication secret (minimum 24 characters) |
 | `TRACKER_MCP_PORT` | `6969` | MCP server port (HTTP mode) |
 | `TRACKER_MCP_MODE` | `http` | `http` for remote, `stdio` for local CLI |
 | `TRACKER_DB_PATH` | `./slab.db` | SQLite database file path |
+| `BIND_ADDRESS` | `127.0.0.1` | Host address used by Docker Compose port publishing |
+
+## VPS Deployment
+
+The Compose defaults publish both services on loopback only. Put a TLS reverse
+proxy in front of them; never send the API key over unencrypted public HTTP.
+
+1. Point two DNS records (for example `api.slab.example.com` and
+   `mcp.slab.example.com`) at the VPS.
+2. Install Docker Engine, the Compose plugin, and Caddy on the VPS.
+3. Clone the repository and create the production environment:
+
+   ```bash
+   cp .env.example .env
+   sed -i "s|^TRACKER_API_KEY=.*|TRACKER_API_KEY=$(openssl rand -hex 32)|" .env
+   chmod 600 .env
+   docker compose up -d --build
+   docker compose ps
+   ```
+
+4. Copy `deploy/Caddyfile.example` to `/etc/caddy/Caddyfile`, replace the two
+   example hostnames, then reload Caddy:
+
+   ```bash
+   sudo caddy validate --config /etc/caddy/Caddyfile
+   sudo systemctl reload caddy
+   ```
+
+5. Allow only SSH, HTTP, and HTTPS through the VPS firewall. Ports `6969` and
+   `6970` remain private on `127.0.0.1`.
+
+Verify both local services and the public TLS endpoints:
+
+```bash
+curl --fail http://127.0.0.1:6970/health
+curl --fail http://127.0.0.1:6969/health
+curl --fail https://api.slab.example.com/health
+curl --fail https://mcp.slab.example.com/health
+```
+
+### Backups
+
+Create a consistent online SQLite backup, then copy it off the container volume:
+
+```bash
+mkdir -p backups
+backup_name="slab-$(date -u +%Y%m%dT%H%M%SZ).db"
+docker compose exec -T --user node slab-api node dist/db/backup.js "/data/$backup_name"
+docker compose cp "slab-api:/data/$backup_name" "backups/$backup_name"
+```
+
+Store backups away from the VPS and periodically test a restore. Before replacing
+the live database during a restore, stop both services with `docker compose stop`.
+
+### Updating
+
+```bash
+git pull --ff-only
+docker compose build --pull
+docker compose up -d
+docker compose ps
+```
+
+## Coolify Deployment
+
+Use the Git repository with Coolify's **Docker Compose** build pack and select
+`/docker-compose.coolify.yml` as the Docker Compose location. This variant does
+not publish host ports or run Caddy; Coolify's proxy handles both public domains.
+
+1. In a Coolify project, choose **New Resource**, then select the public GitHub
+   repository (or GitHub App/Deploy Key for a private fork).
+2. Select the `master` branch, base directory `/`, build pack **Docker Compose**,
+   and Compose location `/docker-compose.coolify.yml`.
+3. In Environment Variables, set `TRACKER_API_KEY` to a random secret of at
+   least 24 characters. Generate one locally with `openssl rand -hex 32`. Keep
+   it runtime-only; it is not needed during the image build.
+4. Assign separate domains to the two services:
+   - `slab-api`: `https://api.slab.example.com:6970`
+   - `slab-mcp`: `https://mcp.slab.example.com:6969`
+5. Deploy and wait until both services are healthy. Keep the generated
+   `slab-data` volume attached because it contains the SQLite database.
+
+The port suffixes tell Coolify which internal container port to proxy; clients
+still connect over normal HTTPS without a port suffix. Configure MCP clients
+with `https://mcp.slab.example.com/mcp` and the same API key.
 
 ## Development
 
@@ -360,7 +442,7 @@ npm install             # Install dependencies
 npm run dev             # REST server with hot reload
 npm run mcp             # MCP server (HTTP mode)
 npm run build           # Compile TypeScript
-npm test                # Run test suite (58 tests)
+npm test                # Run test suite (70 tests)
 npm run test:coverage   # Run tests with coverage report
 npm run test:watch      # Run tests in watch mode
 ```
@@ -370,9 +452,9 @@ npm run test:watch      # Run tests in watch mode
 ```
 File            | Stmts  | Branch | Funcs  | Lines
 ----------------|--------|--------|--------|------
-All files       | 90.4%  | 87.4%  | 88.2%  | 90.9%
-  services/     | 91.5%  | 87.9%  | 87.1%  | 92.1%
-  db/           | 70.0%  | 75.0%  | 100.%  | 70.0%
+All files       | 89.3%  | 86.7%  | 88.6%  | 90.4%
+  services/     | 91.7%  | 88.1%  | 87.9%  | 92.3%
+  db/           | 70.7%  | 61.1%  | 85.7%  | 75.7%
 ```
 
 ## Architecture
@@ -380,8 +462,10 @@ All files       | 90.4%  | 87.4%  | 88.2%  | 90.9%
 ```
 src/
 ├── index.ts                REST API entry point
+├── config.ts               Runtime validation and API-key helpers
 ├── types.ts                Shared TypeScript types
 ├── db/
+│   ├── backup.ts           Online SQLite backup command
 │   ├── connection.ts       SQLite connection singleton
 │   ├── migrate.ts          Migration runner
 │   └── migrations/         Numbered SQL migration files

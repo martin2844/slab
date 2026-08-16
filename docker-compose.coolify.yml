@@ -1,13 +1,12 @@
 services:
   slab-api:
-    image: martin2844/slab:latest
     build: .
-    ports:
-      - "${BIND_ADDRESS:-127.0.0.1}:${PORT:-6970}:6970"
     environment:
       PORT: "6970"
-      TRACKER_API_KEY: "${TRACKER_API_KEY:?Set TRACKER_API_KEY in .env}"
+      TRACKER_API_KEY: "${TRACKER_API_KEY:?Set TRACKER_API_KEY in Coolify}"
       TRACKER_DB_PATH: /data/slab.db
+    expose:
+      - "6970"
     volumes:
       - slab-data:/data
     restart: unless-stopped
@@ -36,15 +35,15 @@ services:
         max-file: "3"
 
   slab-mcp:
-    image: martin2844/slab:latest
+    build: .
     command: ["node", "dist/mcp/server.js"]
-    ports:
-      - "${BIND_ADDRESS:-127.0.0.1}:${TRACKER_MCP_PORT:-6969}:6969"
     environment:
       TRACKER_MCP_PORT: "6969"
       TRACKER_MCP_MODE: http
-      TRACKER_API_KEY: "${TRACKER_API_KEY:?Set TRACKER_API_KEY in .env}"
+      TRACKER_API_KEY: "${TRACKER_API_KEY:?Set TRACKER_API_KEY in Coolify}"
       TRACKER_DB_PATH: /data/slab.db
+    expose:
+      - "6969"
     volumes:
       - slab-data:/data
     restart: unless-stopped

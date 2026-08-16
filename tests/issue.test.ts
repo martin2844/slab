@@ -1,6 +1,45 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { spawn } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import Database from 'better-sqlite3';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import * as projectSvc from '../src/services/project.js';
 import * as issueSvc from '../src/services/issue.js';
+import { getDb } from '../src/db/connection.js';
+
+const repoRoot = fileURLToPath(new URL('..', import.meta.url));
+const migrationSql = fs.readFileSync(path.join(repoRoot, 'src/db/migrations/001_initial.sql'), 'utf8');
+
+function createIssueInChild(dbPath: string, title: string): Promise<string> {
+  const source = `
+    import('./src/services/issue.ts')
+      .then(({ createIssue }) => {
+        const issue = createIssue('TEST', { title: process.argv[1] });
+        if (!issue) throw new Error('project not found');
+        process.stdout.write(issue.key);
+      })
+      .catch((error) => { console.error(error); process.exit(1); });
+  `;
+
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, ['--import', 'tsx', '--eval', source, title], {
+      cwd: repoRoot,
+      env: { ...process.env, TRACKER_DB_PATH: dbPath },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.setEncoding('utf8').on('data', chunk => { stdout += chunk; });
+    child.stderr.setEncoding('utf8').on('data', chunk => { stderr += chunk; });
+    child.on('error', reject);
+    child.on('close', code => {
+      if (code === 0) resolve(stdout);
+      else reject(new Error(`issue worker exited ${code}: ${stderr}`));
+    });
+  });
+}
 
 describe('Issue Service', () => {
   beforeEach(() => {
@@ -54,6 +93,31 @@ describe('Issue Service', () => {
       expect(issueSvc.getIssueByKey('TEST-2')).toBeDefined();
       expect(issueSvc.getIssueByKey('TEST-3')).toBeDefined();
     });
+
+    it('allocates unique issue numbers across concurrent database connections', async () => {
+      const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'slab-issue-concurrency-'));
+      const dbPath = path.join(directory, 'shared.db');
+      try {
+        const db = new Database(dbPath);
+        db.exec(migrationSql);
+        db.prepare(
+          `INSERT INTO projects (id, key, name, created_at, updated_at)
+           VALUES ('project-1', 'TEST', 'Test Project', 'now', 'now')`,
+        ).run();
+        db.close();
+
+        const keys = await Promise.all(
+          Array.from({ length: 4 }, (_, index) => createIssueInChild(dbPath, `Concurrent ${index}`)),
+        );
+
+        expect(keys.sort()).toEqual(['TEST-1', 'TEST-2', 'TEST-3', 'TEST-4']);
+        const verify = new Database(dbPath, { readonly: true });
+        expect(verify.prepare('SELECT COUNT(*) AS count FROM issues').get()).toEqual({ count: 4 });
+        verify.close();
+      } finally {
+        fs.rmSync(directory, { recursive: true, force: true });
+      }
+    }, 15_000);
 
     it('returns null for non-existent project', () => {
       expect(issueSvc.createIssue('NOPE', { title: 'X' })).toBeNull();
@@ -116,6 +180,26 @@ describe('Issue Service', () => {
 
     it('returns null for non-existent issue', () => {
       expect(issueSvc.updateIssue('TEST-999', { title: 'X' })).toBeNull();
+    });
+
+    it('rolls back the issue update when writing history fails', () => {
+      issueSvc.createIssue('TEST', { title: 'Original title' });
+      const db = getDb();
+      const originalPrepare = db.prepare.bind(db);
+      const prepare = vi.spyOn(db, 'prepare').mockImplementation(((sql: string) => {
+        if (sql.includes('INSERT INTO history')) throw new Error('simulated history failure');
+        return originalPrepare(sql);
+      }) as typeof db.prepare);
+
+      try {
+        expect(() => issueSvc.updateIssue('TEST-1', { title: 'Changed title' }, 'tester'))
+          .toThrow('simulated history failure');
+      } finally {
+        prepare.mockRestore();
+      }
+
+      expect(issueSvc.getIssueByKey('TEST-1')?.title).toBe('Original title');
+      expect(originalPrepare('SELECT * FROM history').all()).toEqual([]);
     });
   });
 

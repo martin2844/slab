@@ -17,10 +17,6 @@ export function runMigrations() {
     )
   `);
 
-  const applied = new Set(
-    db.prepare('SELECT id FROM migrations').all().map((r: any) => r.id)
-  );
-
   const files = fs.readdirSync(MIGRATIONS_DIR)
     .filter(f => f.endsWith('.sql'))
     .sort();
@@ -30,13 +26,19 @@ export function runMigrations() {
     if (!match) continue;
     const id = parseInt(match[1], 10);
 
-    if (applied.has(id)) continue;
-
     const sql = fs.readFileSync(path.join(MIGRATIONS_DIR, file), 'utf-8');
-    console.log(`Applying migration ${file}...`);
-    db.exec(sql);
-    db.prepare('INSERT INTO migrations (id) VALUES (?)').run(id);
-    console.log(`Migration ${file} applied.`);
+    const applyMigration = db.transaction(() => {
+      const alreadyApplied = db.prepare('SELECT 1 FROM migrations WHERE id = ?').get(id);
+      if (alreadyApplied) return false;
+
+      db.exec(sql);
+      db.prepare('INSERT INTO migrations (id) VALUES (?)').run(id);
+      return true;
+    });
+
+    if (applyMigration.immediate()) {
+      console.log(`Migration ${file} applied.`);
+    }
   }
 
   console.log('Migrations complete.');

@@ -9,6 +9,8 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 import { runMigrations } from '../db/migrate.js';
+import { closeDb, getDb } from '../db/connection.js';
+import { extractRequestApiKey, getApiKey, parsePort, secretsMatch } from '../config.js';
 import * as projectSvc from '../services/project.js';
 import * as issueSvc from '../services/issue.js';
 import * as commentSvc from '../services/comment.js';
@@ -288,19 +290,52 @@ function createMcpServer(): McpServer {
 
 // ── Transport Selection ────────────────────────────────────
 
-const MCP_PORT = parseInt(process.env.TRACKER_MCP_PORT || '6969');
+const MCP_PORT = parsePort(process.env.TRACKER_MCP_PORT, 6969, 'TRACKER_MCP_PORT');
 const MCP_MODE = process.env.TRACKER_MCP_MODE || 'http'; // 'http' | 'stdio'
+
+if (MCP_MODE !== 'http' && MCP_MODE !== 'stdio') {
+  throw new Error('TRACKER_MCP_MODE must be either "http" or "stdio"');
+}
 
 if (MCP_MODE === 'stdio') {
   // Local stdio transport (for CLI tools on the same machine)
   const transport = new StdioServerTransport();
   const server = createMcpServer();
-  server.connect(transport);
+  server.connect(transport).catch((error) => {
+    console.error('Failed to start Slab MCP stdio server:', error);
+    closeDb();
+    process.exit(1);
+  });
   console.error('Slab MCP server running on stdio');
+
+  const shutdown = async () => {
+    try { await server.close(); } finally {
+      closeDb();
+      process.exit(0);
+    }
+  };
+  process.once('SIGINT', shutdown);
+  process.once('SIGTERM', shutdown);
 } else {
   // HTTP transport: StreamableHTTP (modern) + SSE fallback (legacy clients)
   const app = express();
-  app.use(express.json());
+  const apiKey = getApiKey();
+  app.disable('x-powered-by');
+
+  app.get('/health', (_req, res) => {
+    getDb().prepare('SELECT 1').get();
+    res.json({ status: 'ok' });
+  });
+
+  app.use((req, res, next) => {
+    const candidate = extractRequestApiKey(req.headers);
+    if (!secretsMatch(candidate, apiKey)) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+    next();
+  });
+  app.use(express.json({ limit: '1mb' }));
 
   const transports: Record<string, any> = {};
 
@@ -368,17 +403,36 @@ if (MCP_MODE === 'stdio') {
   });
 
   // ── Start ───────────────────────────────────────────────
-  app.listen(MCP_PORT, () => {
-    console.log(`Slab MCP server listening on port ${MCP_PORT}`);
+  app.use((error: any, _req: express.Request, res: express.Response, next: express.NextFunction) => {
+    if (error?.type === 'entity.too.large') {
+      res.status(413).json({ error: 'Request body too large' });
+      return;
+    }
+    next(error);
+  });
+
+  const httpServer = app.listen(MCP_PORT, '0.0.0.0', () => {
+    console.log(`Slab MCP server listening on 0.0.0.0:${MCP_PORT}`);
     console.log(`  Streamable HTTP: POST/GET/DELETE /mcp`);
     console.log(`  SSE (legacy):    GET /sse, POST /messages`);
   });
 
-  process.on('SIGINT', async () => {
+  let shuttingDown = false;
+  const shutdown = async (signal: string) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.log(`Received ${signal}; shutting down Slab MCP server`);
     for (const sid in transports) {
       try { await transports[sid].close(); } catch {}
       delete transports[sid];
     }
-    process.exit(0);
-  });
+    httpServer.close(() => {
+      closeDb();
+      process.exit(0);
+    });
+    setTimeout(() => process.exit(1), 10_000).unref();
+  };
+
+  process.on('SIGINT', () => shutdown('SIGINT'));
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
 }

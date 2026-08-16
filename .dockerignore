@@ -1,0 +1,10 @@
+.git
+.env
+node_modules
+dist
+coverage
+backups
+*.db
+*.db-shm
+*.db-wal
+npm-debug.log*

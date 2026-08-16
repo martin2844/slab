@@ -31,23 +31,28 @@ function getNextIssueNumber(db: any, projectId: string): number {
 
 export function createIssue(projectKey: string, data: CreateIssue): Issue | null {
   const db = getDb();
-  const project = db.prepare('SELECT * FROM projects WHERE key = ?').get(projectKey) as any;
-  if (!project) return null;
+  const create = db.transaction(() => {
+    const project = db.prepare('SELECT * FROM projects WHERE key = ?').get(projectKey) as any;
+    if (!project) return null;
 
-  const type = data.type || 'task';
-  const priority = data.priority || 'medium';
-  const labels = JSON.stringify(data.labels || []);
-  const id = uuid();
-  const number = getNextIssueNumber(db, project.id);
-  const key = `${projectKey}-${number}`;
-  const now = new Date().toISOString();
+    const type = data.type || 'task';
+    const priority = data.priority || 'medium';
+    const labels = JSON.stringify(data.labels || []);
+    const id = uuid();
+    const number = getNextIssueNumber(db, project.id);
+    const key = `${projectKey}-${number}`;
+    const now = new Date().toISOString();
 
-  db.prepare(
-    `INSERT INTO issues (id, project_id, key, type, title, description, status, priority, assignee, labels, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, 'new', ?, ?, ?, ?, ?)`
-  ).run(id, project.id, key, type, data.title, data.description ?? null, priority, data.assignee ?? null, labels, now, now);
+    db.prepare(
+      `INSERT INTO issues (id, project_id, key, type, title, description, status, priority, assignee, labels, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, 'new', ?, ?, ?, ?, ?)`
+    ).run(id, project.id, key, type, data.title, data.description ?? null, priority, data.assignee ?? null, labels, now, now);
 
-  return getIssueByKey(key);
+    return key;
+  });
+
+  const key = create.immediate();
+  return key ? getIssueByKey(key) : null;
 }
 
 export function getIssueByKey(key: string): Issue | null {
@@ -111,68 +116,68 @@ export function listIssues(projectKey: string, query: ListIssuesQuery): { data: 
 
 export function updateIssue(key: string, data: UpdateIssue, author: string = 'system'): Issue | null {
   const db = getDb();
-  const issue = getIssueByKey(key);
-  if (!issue) return null;
+  const update = db.transaction(() => {
+    const issue = getIssueByKey(key);
+    if (!issue) return null;
 
-  const fields: string[] = [];
-  const values: any[] = [];
-  const historyEntries: { field: string; old: string | null; new: string | null }[] = [];
+    const fields: string[] = [];
+    const values: any[] = [];
+    const historyEntries: { field: string; old: string | null; new: string | null }[] = [];
 
-  const trackable = ['type', 'title', 'description', 'status', 'priority', 'assignee'] as const;
+    const trackable = ['type', 'title', 'description', 'status', 'priority', 'assignee'] as const;
 
-  for (const field of trackable) {
-    if (data[field as keyof UpdateIssue] !== undefined) {
-      const newValue = data[field as keyof UpdateIssue] as any;
-      const oldValue = field === 'assignee' ? issue[field] :
-                       field === 'description' ? issue[field] :
-                       String(issue[field as keyof Issue]);
+    for (const field of trackable) {
+      if (data[field as keyof UpdateIssue] !== undefined) {
+        const newValue = data[field as keyof UpdateIssue] as any;
+        const oldValue = field === 'assignee' ? issue[field] :
+                         field === 'description' ? issue[field] :
+                         String(issue[field as keyof Issue]);
 
-      // Handle nullable fields
-      const oldStr = oldValue ?? null;
-      const newStr = newValue ?? null;
+        const oldStr = oldValue ?? null;
+        const newStr = newValue ?? null;
 
-      if (oldStr !== newStr) {
-        historyEntries.push({ field, old: oldStr, new: newStr });
-        fields.push(`${field} = ?`);
-        values.push(newValue);
+        if (oldStr !== newStr) {
+          historyEntries.push({ field, old: oldStr, new: newStr });
+          fields.push(`${field} = ?`);
+          values.push(newValue);
+        }
       }
     }
-  }
 
-  // Handle labels separately (stored as JSON)
-  if (data.labels !== undefined) {
-    const oldLabels = JSON.stringify(issue.labels);
-    const newLabels = JSON.stringify(data.labels);
-    if (oldLabels !== newLabels) {
-      historyEntries.push({ field: 'labels', old: oldLabels, new: newLabels });
-      fields.push('labels = ?');
-      values.push(newLabels);
+    if (data.labels !== undefined) {
+      const oldLabels = JSON.stringify(issue.labels);
+      const newLabels = JSON.stringify(data.labels);
+      if (oldLabels !== newLabels) {
+        historyEntries.push({ field: 'labels', old: oldLabels, new: newLabels });
+        fields.push('labels = ?');
+        values.push(newLabels);
+      }
     }
-  }
 
-  if (fields.length === 0) return issue;
+    if (fields.length === 0) return issue;
 
-  // Handle resolved_at
-  if (data.status === 'done') {
-    fields.push('resolved_at = ?');
+    if (data.status === 'done') {
+      fields.push('resolved_at = ?');
+      values.push(new Date().toISOString());
+    } else if (data.status && data.status !== 'done' as string) {
+      fields.push('resolved_at = ?');
+      values.push(null);
+    }
+
+    fields.push('updated_at = ?');
     values.push(new Date().toISOString());
-  } else if (data.status && data.status !== 'done' as string) {
-    fields.push('resolved_at = ?');
-    values.push(null);
-  }
+    values.push(key);
 
-  fields.push('updated_at = ?');
-  values.push(new Date().toISOString());
-  values.push(key);
+    db.prepare(`UPDATE issues SET ${fields.join(', ')} WHERE key = ?`).run(...values);
 
-  db.prepare(`UPDATE issues SET ${fields.join(', ')} WHERE key = ?`).run(...values);
+    for (const entry of historyEntries) {
+      recordHistory(issue.id, entry.field, entry.old, entry.new, author);
+    }
 
-  // Record history
-  for (const entry of historyEntries) {
-    recordHistory(issue.id, entry.field, entry.old, entry.new, author);
-  }
+    return getIssueByKey(key);
+  });
 
-  return getIssueByKey(key);
+  return update.immediate();
 }
 
 export function deleteIssue(key: string): boolean {
