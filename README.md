@@ -228,8 +228,8 @@ Add to `~/.kimi/mcp.json`:
 | `create_issue` | Create an issue (story / bug / task / epic) |
 | `list_issues` | List issues with filters (status, type, priority, assignee, labels, search) |
 | `get_issue` | Get issue details by key (e.g. `MYAPP-1`) |
-| `update_issue` | Update issue fields, change status, reassign |
-| `delete_issue` | Delete an issue permanently |
+| `update_issue` | Update issue fields with optimistic concurrency (`expected_version`) |
+| `delete_issue` | Delete an issue permanently with `expected_version` |
 | `search_issues` | Full-text search across all projects |
 | `get_blocked_issues` | List issues blocked by other unfinished issues |
 | `add_comment` | Add a Markdown comment to an issue |
@@ -271,7 +271,7 @@ POST   /api/projects/:key/issues        Create issue
 GET    /api/projects/:key/issues        List issues (with filters)
 GET    /api/issues/:key                 Get issue
 PATCH  /api/issues/:key                 Update issue
-DELETE /api/issues/:key                 Delete issue
+DELETE /api/issues/:key?expected_version=N  Delete issue
 GET    /api/search?q=query             Search across projects
 GET    /api/blocked                    List blocked issues
 ```
@@ -329,7 +329,7 @@ curl -X POST http://localhost:6970/api/projects/MYAPP/issues \
 # Start working on it
 curl -X PATCH http://localhost:6970/api/issues/MYAPP-1 \
   -H "X-API-Key: $TRACKER_API_KEY" -H "Content-Type: application/json" \
-  -d '{"status":"in_progress","assignee":"alice"}'
+  -d '{"expected_version":1,"status":"in_progress","assignee":"alice"}'
 
 # List open issues
 curl "http://localhost:6970/api/projects/MYAPP/issues?status=new,in_progress" \
@@ -339,6 +339,13 @@ curl "http://localhost:6970/api/projects/MYAPP/issues?status=new,in_progress" \
 curl "http://localhost:6970/api/search?q=login" \
   -H "X-API-Key: $TRACKER_API_KEY"
 ```
+
+Issue reads expose a monotonically increasing `version`. REST `PATCH`, REST
+`DELETE`, MCP `update_issue`, and MCP `delete_issue` require
+`expected_version` from the latest read. A stale mutation returns HTTP `409` or
+MCP error code `VERSION_CONFLICT`; callers must fetch the issue again and
+reconsider before retrying. Comment creation is append-only and does not
+require an issue version.
 
 ## Configuration
 

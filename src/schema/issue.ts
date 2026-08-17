@@ -10,7 +10,7 @@ export const createIssueSchema = z.object({
   labels: z.array(z.string().max(100)).max(20).default([]),
 });
 
-export const updateIssueSchema = z.object({
+export const updateIssueFieldsSchema = z.object({
   type: z.enum(['epic', 'story', 'task', 'bug']).optional(),
   title: z.string().min(1).max(500).optional(),
   description: z.string().max(50000).nullable().optional(),
@@ -18,6 +18,10 @@ export const updateIssueSchema = z.object({
   priority: z.enum(['critical', 'high', 'medium', 'low']).optional(),
   assignee: z.string().max(200).nullable().optional(),
   labels: z.array(z.string().max(100)).max(20).optional(),
+});
+
+export const updateIssueSchema = updateIssueFieldsSchema.extend({
+  expected_version: z.number().int().positive(),
 });
 
 export const listIssuesQuerySchema = z.object({
@@ -40,5 +44,6 @@ export const listIssuesQuerySchema = z.object({
 });
 
 export type CreateIssue = z.infer<typeof createIssueSchema>;
-export type UpdateIssue = z.infer<typeof updateIssueSchema>;
+export type UpdateIssue = z.infer<typeof updateIssueFieldsSchema>;
+export type UpdateIssueRequest = z.infer<typeof updateIssueSchema>;
 export type ListIssuesQuery = z.infer<typeof listIssuesQuerySchema>;

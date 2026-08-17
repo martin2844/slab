@@ -6,10 +6,11 @@ import { fileURLToPath } from 'url';
 import { setDb, resetDb } from '../src/db/connection.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const MIGRATION_SQL = fs.readFileSync(
-  path.join(__dirname, '../src/db/migrations/001_initial.sql'),
-  'utf-8'
-);
+const MIGRATION_SQL = fs.readdirSync(path.join(__dirname, '../src/db/migrations'))
+  .filter(file => file.endsWith('.sql'))
+  .sort()
+  .map(file => fs.readFileSync(path.join(__dirname, '../src/db/migrations', file), 'utf-8'))
+  .join('\n');
 
 let db: Database.Database;
 

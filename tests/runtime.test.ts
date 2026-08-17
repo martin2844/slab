@@ -105,6 +105,51 @@ describe('production HTTP entrypoints', () => {
     });
     expect(authorized.status).toBe(200);
 
+    const jsonHeaders = {
+      'Content-Type': 'application/json',
+      'X-API-Key': TEST_API_KEY,
+    };
+    const createdProject = await fetch(`${baseUrl}/api/projects`, {
+      method: 'POST',
+      headers: jsonHeaders,
+      body: JSON.stringify({ key: 'RACE', name: 'Concurrency' }),
+    });
+    expect(createdProject.status).toBe(201);
+    const createdIssue = await fetch(`${baseUrl}/api/projects/RACE/issues`, {
+      method: 'POST',
+      headers: jsonHeaders,
+      body: JSON.stringify({ title: 'Guard this issue' }),
+    });
+    expect(createdIssue.status).toBe(201);
+
+    const winningUpdate = await fetch(`${baseUrl}/api/issues/RACE-1`, {
+      method: 'PATCH',
+      headers: jsonHeaders,
+      body: JSON.stringify({ expected_version: 1, status: 'done' }),
+    });
+    expect(winningUpdate.status).toBe(200);
+    expect((await winningUpdate.json()).data).toMatchObject({
+      status: 'done',
+      version: 2,
+    });
+
+    const staleUpdate = await fetch(`${baseUrl}/api/issues/RACE-1`, {
+      method: 'PATCH',
+      headers: jsonHeaders,
+      body: JSON.stringify({
+        expected_version: 1,
+        status: 'in_progress',
+        labels: ['status:blocked'],
+      }),
+    });
+    expect(staleUpdate.status).toBe(409);
+    expect((await staleUpdate.json()).error).toMatchObject({
+      code: 'VERSION_CONFLICT',
+      expectedVersion: 1,
+      currentVersion: 2,
+      currentStatus: 'done',
+    });
+
     const malformed = await fetch(`${baseUrl}/api/projects`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-API-Key': TEST_API_KEY },

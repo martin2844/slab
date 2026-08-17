@@ -139,7 +139,7 @@ describe('Issue Service', () => {
   describe('updateIssue', () => {
     it('updates status and records history', () => {
       issueSvc.createIssue('TEST', { title: 'Updatable' });
-      const updated = issueSvc.updateIssue('TEST-1', { status: 'in_progress' }, 'alice')!;
+      const updated = issueSvc.updateIssue('TEST-1', { status: 'in_progress' }, 1, 'alice')!;
 
       expect(updated.status).toBe('in_progress');
       expect(updated.assignee).toBeNull(); // unchanged
@@ -147,7 +147,7 @@ describe('Issue Service', () => {
 
     it('sets resolved_at when status is done', () => {
       issueSvc.createIssue('TEST', { title: 'Completable' });
-      const done = issueSvc.updateIssue('TEST-1', { status: 'done' }, 'bob')!;
+      const done = issueSvc.updateIssue('TEST-1', { status: 'done' }, 1, 'bob')!;
 
       expect(done.status).toBe('done');
       expect(done.resolved_at).toBeDefined();
@@ -156,8 +156,8 @@ describe('Issue Service', () => {
 
     it('clears resolved_at when moving away from done', () => {
       issueSvc.createIssue('TEST', { title: 'Reopened' });
-      issueSvc.updateIssue('TEST-1', { status: 'done' }, 'bob');
-      const reopened = issueSvc.updateIssue('TEST-1', { status: 'in_progress' }, 'bob')!;
+      const done = issueSvc.updateIssue('TEST-1', { status: 'done' }, 1, 'bob')!;
+      const reopened = issueSvc.updateIssue('TEST-1', { status: 'in_progress' }, done.version, 'bob')!;
 
       expect(reopened.status).toBe('in_progress');
       expect(reopened.resolved_at).toBeNull();
@@ -170,7 +170,7 @@ describe('Issue Service', () => {
         priority: 'high',
         assignee: 'charlie',
         labels: ['frontend', 'v2'],
-      }, 'system')!;
+      }, 1, 'system')!;
 
       expect(updated.title).toBe('Updated title');
       expect(updated.priority).toBe('high');
@@ -179,7 +179,7 @@ describe('Issue Service', () => {
     });
 
     it('returns null for non-existent issue', () => {
-      expect(issueSvc.updateIssue('TEST-999', { title: 'X' })).toBeNull();
+      expect(issueSvc.updateIssue('TEST-999', { title: 'X' }, 1)).toBeNull();
     });
 
     it('rolls back the issue update when writing history fails', () => {
@@ -192,7 +192,7 @@ describe('Issue Service', () => {
       }) as typeof db.prepare);
 
       try {
-        expect(() => issueSvc.updateIssue('TEST-1', { title: 'Changed title' }, 'tester'))
+        expect(() => issueSvc.updateIssue('TEST-1', { title: 'Changed title' }, 1, 'tester'))
           .toThrow('simulated history failure');
       } finally {
         prepare.mockRestore();
@@ -217,7 +217,7 @@ describe('Issue Service', () => {
     it('filters by status', () => {
       issueSvc.createIssue('TEST', { title: 'Open' });
       issueSvc.createIssue('TEST', { title: 'Working' });
-      issueSvc.updateIssue('TEST-2', { status: 'in_progress' }, 'system');
+      issueSvc.updateIssue('TEST-2', { status: 'in_progress' }, 1, 'system');
 
       const result = issueSvc.listIssues('TEST', { status: ['in_progress'] });
       expect(result.data).toHaveLength(1);
@@ -273,12 +273,12 @@ describe('Issue Service', () => {
   describe('deleteIssue', () => {
     it('deletes an existing issue', () => {
       issueSvc.createIssue('TEST', { title: 'Deletable' });
-      expect(issueSvc.deleteIssue('TEST-1')).toBe(true);
+      expect(issueSvc.deleteIssue('TEST-1', 1)).toBe(true);
       expect(issueSvc.getIssueByKey('TEST-1')).toBeNull();
     });
 
     it('returns false for non-existent issue', () => {
-      expect(issueSvc.deleteIssue('TEST-999')).toBe(false);
+      expect(issueSvc.deleteIssue('TEST-999', 1)).toBe(false);
     });
   });
 

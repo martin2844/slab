@@ -16,10 +16,45 @@ function rowToIssue(row: any): Issue {
     priority: row.priority,
     assignee: row.assignee,
     labels: JSON.parse(row.labels || '[]'),
+    version: row.version,
     created_at: row.created_at,
     updated_at: row.updated_at,
     resolved_at: row.resolved_at,
   };
+}
+
+export class IssueVersionConflictError extends Error {
+  readonly code = 'VERSION_CONFLICT' as const;
+  readonly key: string;
+  readonly expectedVersion: number;
+  readonly currentVersion: number;
+  readonly currentStatus: Issue['status'];
+  readonly currentAssignee: string | null;
+  readonly updatedAt: string;
+
+  constructor(key: string, expectedVersion: number, current: Issue) {
+    super('Issue changed since it was last read.');
+    this.name = 'IssueVersionConflictError';
+    this.key = key;
+    this.expectedVersion = expectedVersion;
+    this.currentVersion = current.version;
+    this.currentStatus = current.status;
+    this.currentAssignee = current.assignee;
+    this.updatedAt = current.updated_at;
+  }
+
+  toJSON() {
+    return {
+      code: this.code,
+      message: this.message,
+      key: this.key,
+      expectedVersion: this.expectedVersion,
+      currentVersion: this.currentVersion,
+      currentStatus: this.currentStatus,
+      currentAssignee: this.currentAssignee,
+      updatedAt: this.updatedAt,
+    };
+  }
 }
 
 function getNextIssueNumber(db: any, projectId: string): number {
@@ -114,7 +149,12 @@ export function listIssues(projectKey: string, query: ListIssuesQuery): { data: 
   return { data: rows.map(rowToIssue), total };
 }
 
-export function updateIssue(key: string, data: UpdateIssue, author: string = 'system'): Issue | null {
+export function updateIssue(
+  key: string,
+  data: UpdateIssue,
+  expectedVersion: number,
+  author: string = 'system',
+): Issue | null {
   const db = getDb();
   const update = db.transaction(() => {
     const issue = getIssueByKey(key);
@@ -154,7 +194,12 @@ export function updateIssue(key: string, data: UpdateIssue, author: string = 'sy
       }
     }
 
-    if (fields.length === 0) return issue;
+    if (fields.length === 0) {
+      if (issue.version !== expectedVersion) {
+        throw new IssueVersionConflictError(key, expectedVersion, issue);
+      }
+      return issue;
+    }
 
     if (data.status === 'done') {
       fields.push('resolved_at = ?');
@@ -166,9 +211,19 @@ export function updateIssue(key: string, data: UpdateIssue, author: string = 'sy
 
     fields.push('updated_at = ?');
     values.push(new Date().toISOString());
+    fields.push('version = version + 1');
     values.push(key);
+    values.push(expectedVersion);
 
-    db.prepare(`UPDATE issues SET ${fields.join(', ')} WHERE key = ?`).run(...values);
+    const result = db.prepare(
+      `UPDATE issues SET ${fields.join(', ')} WHERE key = ? AND version = ?`,
+    ).run(...values);
+
+    if (result.changes === 0) {
+      const current = getIssueByKey(key);
+      if (!current) return null;
+      throw new IssueVersionConflictError(key, expectedVersion, current);
+    }
 
     for (const entry of historyEntries) {
       recordHistory(issue.id, entry.field, entry.old, entry.new, author);
@@ -180,10 +235,18 @@ export function updateIssue(key: string, data: UpdateIssue, author: string = 'sy
   return update.immediate();
 }
 
-export function deleteIssue(key: string): boolean {
+export function deleteIssue(key: string, expectedVersion: number): boolean {
   const db = getDb();
-  const result = db.prepare('DELETE FROM issues WHERE key = ?').run(key);
-  return result.changes > 0;
+  const remove = db.transaction(() => {
+    const result = db.prepare(
+      'DELETE FROM issues WHERE key = ? AND version = ?',
+    ).run(key, expectedVersion);
+    if (result.changes > 0) return true;
+    const current = getIssueByKey(key);
+    if (!current) return false;
+    throw new IssueVersionConflictError(key, expectedVersion, current);
+  });
+  return remove.immediate();
 }
 
 export function searchIssues(query: string, limit: number = 50, offset: number = 0): { data: Issue[]; total: number } {

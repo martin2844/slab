@@ -144,9 +144,12 @@ function registerTools(server: McpServer) {
     'Update an issue\'s fields. Only include fields you want to change. ' +
     'Status transitions: any status can transition to any other status ("new" → "in_progress" → "done", or any combination). ' +
     'Setting status to "done" automatically sets resolved_at. All changes are recorded in the issue history. ' +
-    'Examples: update_issue(key="MYAPP-1", status="in_progress", assignee="alice") to start work; update_issue(key="MYAPP-1", status="done") to close.',
+    'Pass expected_version from the latest issue read. If the issue changed, the tool returns VERSION_CONFLICT; fetch it again and reconsider before retrying. ' +
+    'Examples: update_issue(key="MYAPP-1", expected_version=3, status="in_progress", assignee="alice") to start work; update_issue(key="MYAPP-1", expected_version=4, status="done") to close.',
     {
       key: z.string().describe('Issue key to update (e.g. "MYAPP-1")'),
+      expected_version: z.number().int().positive()
+        .describe('Version from the latest get_issue, list_issues, search_issues, or get_blocked_issues response'),
       type: z.enum(['epic', 'story', 'task', 'bug']).optional().describe('Change the issue type'),
       title: z.string().optional().describe('New title'),
       description: z.string().nullable().optional().describe('New description (pass null to clear). Markdown supported.'),
@@ -157,21 +160,46 @@ function registerTools(server: McpServer) {
       labels: z.array(z.string()).optional().describe('Replace all labels with this list'),
       author: z.string().default('mcp-agent').describe('Who is making this change (recorded in history)'),
     },
-    async ({ key, author, ...data }) => {
-      const issue = issueSvc.updateIssue(key, data, author);
-      if (!issue) return { content: [{ type: 'text', text: `Issue "${key}" not found` }], isError: true };
-      return { content: [{ type: 'text', text: JSON.stringify(issueMutationResult(issue, Object.keys(data))) }] };
+    async ({ key, expected_version, author, ...data }) => {
+      try {
+        const issue = issueSvc.updateIssue(key, data, expected_version, author);
+        if (!issue) return { content: [{ type: 'text', text: `Issue "${key}" not found` }], isError: true };
+        return { content: [{ type: 'text', text: JSON.stringify(issueMutationResult(issue, Object.keys(data))) }] };
+      } catch (error) {
+        if (error instanceof issueSvc.IssueVersionConflictError) {
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({ error: error.toJSON() }),
+            }],
+            isError: true,
+          };
+        }
+        throw error;
+      }
     });
 
   server.tool('delete_issue',
-    'Permanently delete an issue and all its comments, links, and history. This cannot be undone.',
+    'Permanently delete an issue and all its comments, links, and history. This cannot be undone. Pass expected_version from the latest issue read.',
     {
       key: z.string().describe('Issue key to delete (e.g. "MYAPP-1")'),
+      expected_version: z.number().int().positive()
+        .describe('Version from the latest issue read'),
     },
-    async ({ key }) => {
-      const deleted = issueSvc.deleteIssue(key);
-      if (!deleted) return { content: [{ type: 'text', text: `Issue "${key}" not found` }], isError: true };
-      return { content: [{ type: 'text', text: `Issue ${key} deleted` }] };
+    async ({ key, expected_version }) => {
+      try {
+        const deleted = issueSvc.deleteIssue(key, expected_version);
+        if (!deleted) return { content: [{ type: 'text', text: `Issue "${key}" not found` }], isError: true };
+        return { content: [{ type: 'text', text: JSON.stringify({ key, deleted: true }) }] };
+      } catch (error) {
+        if (error instanceof issueSvc.IssueVersionConflictError) {
+          return {
+            content: [{ type: 'text', text: JSON.stringify({ error: error.toJSON() }) }],
+            isError: true,
+          };
+        }
+        throw error;
+      }
     });
 
   server.tool('search_issues',

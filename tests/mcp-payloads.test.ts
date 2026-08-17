@@ -27,6 +27,7 @@ const issue: Issue = {
   priority: 'high',
   assignee: 'sales',
   labels: ['sales'],
+  version: 4,
   created_at: project.created_at,
   updated_at: project.updated_at,
   resolved_at: null,
@@ -58,6 +59,7 @@ describe('MCP discovery and mutation payloads', () => {
       id: 'issue-1',
       key: 'COO-1',
       status: 'in_progress',
+      version: 4,
       updated_at: project.updated_at,
       changed_fields: ['status'],
     });

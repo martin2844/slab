@@ -1,6 +1,17 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { getDb } from '../src/db/connection.js';
 import { runMigrations } from '../src/db/migrate.js';
+
+const migrationsDirectory = fileURLToPath(
+  new URL('../src/db/migrations/', import.meta.url),
+);
+
+function requireMigration(filename: string) {
+  return fs.readFileSync(path.join(migrationsDirectory, filename), 'utf8');
+}
 
 function resetToUnmigratedDatabase() {
   getDb().exec(`
@@ -30,9 +41,37 @@ describe('database migrations', () => {
     ).run();
     runMigrations();
 
-    expect(db.prepare('SELECT id FROM migrations ORDER BY id').all()).toEqual([{ id: 1 }]);
+    expect(db.prepare('SELECT id FROM migrations ORDER BY id').all()).toEqual([{ id: 1 }, { id: 2 }]);
     expect(db.prepare("SELECT name FROM projects WHERE key = 'KEEP'").get()).toEqual({ name: 'Keep me' });
     expect(log.mock.calls.filter(([message]) => message === 'Migration 001_initial.sql applied.')).toHaveLength(1);
+    expect(log.mock.calls.filter(([message]) => message === 'Migration 002_issue_version.sql applied.')).toHaveLength(1);
+  });
+
+  it('backfills existing issues with version one', () => {
+    const db = getDb();
+    resetToUnmigratedDatabase();
+    db.exec(`
+      CREATE TABLE migrations (
+        id INTEGER PRIMARY KEY,
+        applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+    `);
+    const initialSql = requireMigration('001_initial.sql');
+    db.exec(initialSql);
+    db.prepare('INSERT INTO migrations (id) VALUES (1)').run();
+    db.prepare(
+      `INSERT INTO projects (id, key, name, created_at, updated_at)
+       VALUES ('project-1', 'OLD', 'Existing', 'now', 'now')`,
+    ).run();
+    db.prepare(
+      `INSERT INTO issues
+        (id, project_id, key, type, title, status, priority, labels, created_at, updated_at)
+       VALUES ('issue-1', 'project-1', 'OLD-1', 'task', 'Existing issue', 'new', 'medium', '[]', 'now', 'now')`,
+    ).run();
+
+    runMigrations();
+
+    expect(db.prepare("SELECT version FROM issues WHERE key='OLD-1'").get()).toEqual({ version: 1 });
   });
 
   it('rolls back migration schema changes when recording the migration fails', () => {

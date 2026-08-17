@@ -17,15 +17,39 @@ app.patch('/:key', async (c) => {
   if (!parsed.success) {
     return c.json({ data: null, error: parsed.error.flatten() }, 400);
   }
-  const issue = issueService.updateIssue(c.req.param('key'), parsed.data);
-  if (!issue) return c.json({ data: null, error: 'Issue not found' }, 404);
-  return c.json({ data: issue, error: null });
+  const { expected_version, ...data } = parsed.data;
+  try {
+    const issue = issueService.updateIssue(
+      c.req.param('key'),
+      data,
+      expected_version,
+      'rest-api',
+    );
+    if (!issue) return c.json({ data: null, error: 'Issue not found' }, 404);
+    return c.json({ data: issue, error: null });
+  } catch (error) {
+    if (error instanceof issueService.IssueVersionConflictError) {
+      return c.json({ data: null, error: error.toJSON() }, 409);
+    }
+    throw error;
+  }
 });
 
 app.delete('/:key', (c) => {
-  const deleted = issueService.deleteIssue(c.req.param('key'));
-  if (!deleted) return c.json({ data: null, error: 'Issue not found' }, 404);
-  return c.json({ data: null, error: null });
+  const expectedVersion = Number(c.req.query('expected_version'));
+  if (!Number.isInteger(expectedVersion) || expectedVersion < 1) {
+    return c.json({ data: null, error: 'expected_version is required' }, 400);
+  }
+  try {
+    const deleted = issueService.deleteIssue(c.req.param('key'), expectedVersion);
+    if (!deleted) return c.json({ data: null, error: 'Issue not found' }, 404);
+    return c.json({ data: null, error: null });
+  } catch (error) {
+    if (error instanceof issueService.IssueVersionConflictError) {
+      return c.json({ data: null, error: error.toJSON() }, 409);
+    }
+    throw error;
+  }
 });
 
 export default app;

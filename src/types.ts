@@ -23,6 +23,7 @@ export interface Issue {
   priority: IssuePriority;
   assignee: string | null;
   labels: string[];
+  version: number;
   created_at: string;
   updated_at: string;
   resolved_at: string | null;

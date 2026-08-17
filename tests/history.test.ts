@@ -11,8 +11,8 @@ describe('History Service', () => {
 
   describe('getHistory', () => {
     it('records status changes', () => {
-      issueSvc.updateIssue('TEST-1', { status: 'in_progress' }, 'alice');
-      issueSvc.updateIssue('TEST-1', { status: 'done' }, 'alice');
+      const started = issueSvc.updateIssue('TEST-1', { status: 'in_progress' }, 1, 'alice')!;
+      issueSvc.updateIssue('TEST-1', { status: 'done' }, started.version, 'alice');
 
       const history = historySvc.getHistory('TEST-1')!;
 
@@ -32,7 +32,7 @@ describe('History Service', () => {
     });
 
     it('records assignee changes', () => {
-      issueSvc.updateIssue('TEST-1', { assignee: 'bob' }, 'system');
+      issueSvc.updateIssue('TEST-1', { assignee: 'bob' }, 1, 'system');
 
       const history = historySvc.getHistory('TEST-1')!;
       expect(history).toHaveLength(1);
@@ -48,7 +48,7 @@ describe('History Service', () => {
         status: 'in_progress',
         priority: 'high',
         assignee: 'charlie',
-      }, 'system');
+      }, 1, 'system');
 
       const history = historySvc.getHistory('TEST-1')!;
       expect(history).toHaveLength(3);
@@ -60,7 +60,7 @@ describe('History Service', () => {
     });
 
     it('does not record unchanged fields', () => {
-      issueSvc.updateIssue('TEST-1', { title: 'History test' }, 'system');
+      issueSvc.updateIssue('TEST-1', { title: 'History test' }, 1, 'system');
 
       const history = historySvc.getHistory('TEST-1')!;
       expect(history).toHaveLength(0);

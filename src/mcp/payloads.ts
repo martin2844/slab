@@ -4,7 +4,7 @@ export type ProjectSummary = Pick<Project, 'id' | 'key' | 'name' | 'updated_at'>
 
 export type IssueSummary = Omit<Issue, 'description'>;
 
-export type IssueMutationResult = Pick<Issue, 'id' | 'key' | 'status' | 'updated_at'> & {
+export type IssueMutationResult = Pick<Issue, 'id' | 'key' | 'status' | 'version' | 'updated_at'> & {
   changed_fields: string[];
 };
 
@@ -24,8 +24,8 @@ export function issueMutationResult(
   issue: Issue,
   changedFields: string[],
 ): IssueMutationResult {
-  const { id, key, status, updated_at } = issue;
-  return { id, key, status, updated_at, changed_fields: changedFields };
+  const { id, key, status, version, updated_at } = issue;
+  return { id, key, status, version, updated_at, changed_fields: changedFields };
 }
 
 export function commentMutationResult(comment: Comment): CommentMutationResult {
