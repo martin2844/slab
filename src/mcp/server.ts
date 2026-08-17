@@ -16,6 +16,12 @@ import * as issueSvc from '../services/issue.js';
 import * as commentSvc from '../services/comment.js';
 import * as linkSvc from '../services/link.js';
 import * as historySvc from '../services/history.js';
+import {
+  commentMutationResult,
+  issueMutationResult,
+  issueSummary,
+  projectSummary,
+} from './payloads.js';
 
 runMigrations();
 
@@ -44,11 +50,11 @@ function registerTools(server: McpServer) {
     });
 
   server.tool('list_projects',
-    'List all projects with their keys and metadata. Use this to discover what projects exist before creating or querying issues.',
+    'List project metadata for discovery. Does not return project descriptions. Use get_project to read one complete project.',
     {},
     async () => {
       const projects = projectSvc.listProjects();
-      return { content: [{ type: 'text', text: JSON.stringify(projects, null, 2) }] };
+      return { content: [{ type: 'text', text: JSON.stringify(projects.map(projectSummary)) }] };
     });
 
   server.tool('get_project',
@@ -97,12 +103,12 @@ function registerTools(server: McpServer) {
       const { project_key, ...data } = args;
       const issue = issueSvc.createIssue(project_key, data);
       if (!issue) return { content: [{ type: 'text', text: `Project "${project_key}" not found. Use list_projects to see available projects.` }], isError: true };
-      return { content: [{ type: 'text', text: JSON.stringify(issue, null, 2) }] };
+      return { content: [{ type: 'text', text: JSON.stringify(issueMutationResult(issue, Object.keys(data))) }] };
     });
 
   server.tool('list_issues',
     'List issues in a project with optional filters. Supports filtering by status, type, priority, assignee, labels, and full-text search. ' +
-    'Returns paginated results with total count. Use this to find issues matching specific criteria.',
+    'Returns metadata-only paginated results with total count; descriptions and comments are not included. Use get_issue to read one complete issue.',
     {
       project_key: z.string().describe('Project key (e.g. "MYAPP")'),
       status: z.array(z.enum(['new', 'in_progress', 'done'])).optional()
@@ -119,7 +125,7 @@ function registerTools(server: McpServer) {
     },
     async ({ project_key, ...query }) => {
       const result = issueSvc.listIssues(project_key, query as any);
-      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+      return { content: [{ type: 'text', text: JSON.stringify({ ...result, data: result.data.map(issueSummary) }) }] };
     });
 
   server.tool('get_issue',
@@ -154,7 +160,7 @@ function registerTools(server: McpServer) {
     async ({ key, author, ...data }) => {
       const issue = issueSvc.updateIssue(key, data, author);
       if (!issue) return { content: [{ type: 'text', text: `Issue "${key}" not found` }], isError: true };
-      return { content: [{ type: 'text', text: JSON.stringify(issue, null, 2) }] };
+      return { content: [{ type: 'text', text: JSON.stringify(issueMutationResult(issue, Object.keys(data))) }] };
     });
 
   server.tool('delete_issue',
@@ -170,7 +176,7 @@ function registerTools(server: McpServer) {
 
   server.tool('search_issues',
     'Search issues across ALL projects by text query. Searches both titles and descriptions. ' +
-    'Use this when you don\'t know which project an issue belongs to.',
+    'Returns metadata-only matches for discovery. Use this when you don\'t know which project an issue belongs to, then get_issue to read the complete issue.',
     {
       q: z.string().describe('Search query. Matches against issue titles and descriptions (case-insensitive substring match).'),
       limit: z.number().default(50).describe('Max results'),
@@ -178,17 +184,17 @@ function registerTools(server: McpServer) {
     },
     async ({ q, limit, offset }) => {
       const result = issueSvc.searchIssues(q, limit, offset);
-      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+      return { content: [{ type: 'text', text: JSON.stringify({ ...result, data: result.data.map(issueSummary) }) }] };
     });
 
   server.tool('get_blocked_issues',
     'List all issues that are currently blocked by other unfinished issues. ' +
     'An issue is blocked if another non-"done" issue has a "blocks" link pointing to it. ' +
-    'Use this to identify work that cannot proceed until dependencies are resolved.',
+    'Returns issue metadata without descriptions or comments. Use this to identify work that cannot proceed until dependencies are resolved, then get_issue for full details.',
     {},
     async () => {
       const issues = issueSvc.getBlockedIssues();
-      return { content: [{ type: 'text', text: JSON.stringify(issues, null, 2) }] };
+      return { content: [{ type: 'text', text: JSON.stringify(issues.map(issueSummary)) }] };
     });
 
   // ── Comments ───────────────────────────────────────────
@@ -204,7 +210,7 @@ function registerTools(server: McpServer) {
     async ({ issue_key, ...data }) => {
       const comment = commentSvc.addComment(issue_key, data);
       if (!comment) return { content: [{ type: 'text', text: `Issue "${issue_key}" not found` }], isError: true };
-      return { content: [{ type: 'text', text: JSON.stringify(comment, null, 2) }] };
+      return { content: [{ type: 'text', text: JSON.stringify(commentMutationResult(comment)) }] };
     });
 
   server.tool('list_comments',
