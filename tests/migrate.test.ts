@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getDb } from '../src/db/connection.js';
-import { runMigrations } from '../src/db/migrate.js';
+import { getMigrationStatus, runMigrations } from '../src/db/migrate.js';
 
 const migrationsDirectory = fileURLToPath(
   new URL('../src/db/migrations/', import.meta.url),
@@ -45,6 +45,27 @@ describe('database migrations', () => {
     expect(db.prepare("SELECT name FROM projects WHERE key = 'KEEP'").get()).toEqual({ name: 'Keep me' });
     expect(log.mock.calls.filter(([message]) => message === 'Migration 001_initial.sql applied.')).toHaveLength(1);
     expect(log.mock.calls.filter(([message]) => message === 'Migration 002_issue_version.sql applied.')).toHaveLength(1);
+    expect(getMigrationStatus()).toEqual({
+      ready: true,
+      expected: [1, 2],
+      applied: [1, 2],
+      pending: [],
+    });
+  });
+
+  it('reports an unmigrated database as not ready without mutating it', () => {
+    const db = getDb();
+    resetToUnmigratedDatabase();
+
+    expect(getMigrationStatus()).toEqual({
+      ready: false,
+      expected: [1, 2],
+      applied: [],
+      pending: [1, 2],
+    });
+    expect(db.prepare(
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'migrations'",
+    ).get()).toBeUndefined();
   });
 
   it('backfills existing issues with version one', () => {

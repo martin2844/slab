@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { serve } from '@hono/node-server';
 import { bodyLimit } from 'hono/body-limit';
 import { secureHeaders } from 'hono/secure-headers';
-import { runMigrations } from './db/migrate.js';
+import { getMigrationStatus, runMigrations, shouldRunMigrations } from './db/migrate.js';
 import { closeDb, getDb } from './db/connection.js';
 import { getApiKey, parsePort } from './config.js';
 import { authMiddleware } from './middleware/auth.js';
@@ -24,8 +24,19 @@ app.onError(errorHandler);
 // Health check (no auth)
 app.use('*', secureHeaders());
 app.get('/health', (c) => {
-  getDb().prepare('SELECT 1').get();
   return c.json({ status: 'ok' });
+});
+app.get('/ready', (c) => {
+  try {
+    getDb().prepare('SELECT 1').get();
+    const migrations = getMigrationStatus();
+    if (!migrations.ready) {
+      return c.json({ status: 'not_ready', database: 'ok', migrations }, 503);
+    }
+    return c.json({ status: 'ready', database: 'ok', migrations });
+  } catch {
+    return c.json({ status: 'not_ready', database: 'error' }, 503);
+  }
 });
 
 // Auth middleware for all API routes
@@ -49,7 +60,7 @@ app.route('/api/issues', issueCrudRoutes);            // GET/PATCH/DELETE /:key
 // Run migrations and start server
 const PORT = parsePort(process.env.PORT || process.env.TRACKER_PORT, 6970, 'PORT');
 
-runMigrations();
+if (shouldRunMigrations()) runMigrations();
 
 const server = serve({ fetch: app.fetch, port: PORT, hostname: '0.0.0.0' }, (info) => {
   console.log(`Slab API listening on 0.0.0.0:${info.port}`);

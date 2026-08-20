@@ -1,4 +1,14 @@
 services:
+  slab-migrate:
+    image: martin2844/slab:latest
+    build: .
+    command: ["node", "dist/db/migrate.js"]
+    environment:
+      TRACKER_DB_PATH: /data/slab.db
+    volumes:
+      - slab-data:/data
+    restart: "no"
+
   slab-api:
     image: martin2844/slab:latest
     build: .
@@ -8,9 +18,13 @@ services:
       PORT: "6970"
       TRACKER_API_KEY: "${TRACKER_API_KEY:?Set TRACKER_API_KEY in .env}"
       TRACKER_DB_PATH: /data/slab.db
+      SKIP_MIGRATIONS: "true"
     volumes:
       - slab-data:/data
     restart: unless-stopped
+    depends_on:
+      slab-migrate:
+        condition: service_completed_successfully
     init: true
     read_only: true
     tmpfs:
@@ -25,7 +39,7 @@ services:
       - no-new-privileges:true
     stop_grace_period: 15s
     healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:6970/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:6970/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -45,9 +59,13 @@ services:
       TRACKER_MCP_MODE: http
       TRACKER_API_KEY: "${TRACKER_API_KEY:?Set TRACKER_API_KEY in .env}"
       TRACKER_DB_PATH: /data/slab.db
+      SKIP_MIGRATIONS: "true"
     volumes:
       - slab-data:/data
     restart: unless-stopped
+    depends_on:
+      slab-migrate:
+        condition: service_completed_successfully
     init: true
     read_only: true
     tmpfs:
@@ -62,7 +80,7 @@ services:
       - no-new-privileges:true
     stop_grace_period: 15s
     healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:6969/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:6969/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
       interval: 30s
       timeout: 5s
       retries: 3

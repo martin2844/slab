@@ -32,6 +32,14 @@ export function resetDb(): void {
 }
 
 export function closeDb(): void {
-  if (_db?.open) _db.close();
+  if (_db?.open) {
+    try {
+      _db.pragma('wal_checkpoint(PASSIVE)');
+    } catch {
+      // Another process may still hold the shared WAL. Closing this connection
+      // remains safe; the surviving process or SQLite will checkpoint later.
+    }
+    _db.close();
+  }
   _db = null;
 }
