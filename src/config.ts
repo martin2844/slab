@@ -1,4 +1,5 @@
 import { timingSafeEqual } from 'node:crypto';
+import fs from 'node:fs';
 
 const INSECURE_KEYS = new Set([
   'dev-key-change-me',
@@ -6,10 +7,24 @@ const INSECURE_KEYS = new Set([
 ]);
 
 export function getApiKey(): string {
-  const key = process.env.TRACKER_API_KEY?.trim();
+  const directValue = process.env.TRACKER_API_KEY;
+  const filePath = process.env.TRACKER_API_KEY_FILE?.trim();
+  if (directValue !== undefined && filePath) {
+    throw new Error('Set only one of TRACKER_API_KEY or TRACKER_API_KEY_FILE');
+  }
+
+  let key = directValue?.trim();
+  if (filePath) {
+    try {
+      key = fs.readFileSync(filePath, 'utf8').trim();
+    } catch {
+      throw new Error('TRACKER_API_KEY_FILE could not be read');
+    }
+  }
+
   if (!key || INSECURE_KEYS.has(key) || key.length < 24) {
     throw new Error(
-      'TRACKER_API_KEY must be set to a unique secret containing at least 24 characters',
+      'TRACKER_API_KEY or TRACKER_API_KEY_FILE must provide a unique secret containing at least 24 characters',
     );
   }
   return key;

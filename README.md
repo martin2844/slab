@@ -46,7 +46,9 @@ No dashboards. No boards. No sprints. Just a clean API that lets your tools trac
 
 ### Docker (recommended)
 
-The image can run the REST API or MCP server. Compose starts one container for each process; both share the same persistent database volume.
+The image can run the migration command, REST API, or MCP server. Compose runs
+migrations once, then starts one container for each server; both share the same
+persistent database volume.
 
 | Port | Service | Purpose |
 |------|---------|---------|
@@ -113,7 +115,12 @@ npm run mcp          # MCP server on :6969
 ```bash
 curl http://localhost:6970/health
 # {"status":"ok"}
+curl http://localhost:6970/ready
+# {"status":"ready",...}
 ```
+
+`/health` is process liveness. `/ready` also verifies SQLite access and that all
+packaged schema migrations are applied. Production Compose uses `/ready`.
 
 ## MCP Integration
 
@@ -353,10 +360,22 @@ require an issue version.
 |----------|---------|-------------|
 | `PORT` | `6970` | REST API port |
 | `TRACKER_API_KEY` | required | Authentication secret (minimum 24 characters) |
+| `TRACKER_API_KEY_FILE` | — | Read the authentication secret from a mounted file; mutually exclusive with `TRACKER_API_KEY` |
 | `TRACKER_MCP_PORT` | `6969` | MCP server port (HTTP mode) |
 | `TRACKER_MCP_MODE` | `http` | `http` for remote, `stdio` for local CLI |
 | `TRACKER_DB_PATH` | `./slab.db` | SQLite database file path |
+| `SKIP_MIGRATIONS` | `false` | Set to `true` on API/MCP only after the one-shot migration command succeeds |
 | `BIND_ADDRESS` | `127.0.0.1` | Host address used by Docker Compose port publishing |
+
+Run deterministic production migrations with:
+
+```bash
+docker run --rm -v slab-data:/data ghcr.io/martin2844/slab:<version> \
+  node dist/db/migrate.js
+```
+
+The unified self-hosted stack mounts `TRACKER_API_KEY_FILE` from a Compose
+secret. The direct environment variable remains available for local development.
 
 ## VPS Deployment
 
@@ -390,8 +409,8 @@ proxy in front of them; never send the API key over unencrypted public HTTP.
 Verify both local services and the public TLS endpoints:
 
 ```bash
-curl --fail http://127.0.0.1:6970/health
-curl --fail http://127.0.0.1:6969/health
+curl --fail http://127.0.0.1:6970/ready
+curl --fail http://127.0.0.1:6969/ready
 curl --fail https://api.slab.example.com/health
 curl --fail https://mcp.slab.example.com/health
 ```

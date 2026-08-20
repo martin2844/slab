@@ -96,6 +96,9 @@ describe('production HTTP entrypoints', () => {
     const health = await fetch(`${baseUrl}/health`);
     expect(health.status).toBe(200);
     expect(health.headers.get('x-content-type-options')).toBe('nosniff');
+    const ready = await fetch(`${baseUrl}/ready`);
+    expect(ready.status).toBe(200);
+    expect(await ready.json()).toMatchObject({ status: 'ready', database: 'ok' });
 
     const unauthorized = await fetch(`${baseUrl}/api/projects`);
     expect(unauthorized.status).toBe(401);
@@ -181,6 +184,10 @@ describe('production HTTP entrypoints', () => {
     const baseUrl = `http://127.0.0.1:${port}`;
     await waitUntilHealthy(`${baseUrl}/health`, child, logs);
 
+    const ready = await fetch(`${baseUrl}/ready`);
+    expect(ready.status).toBe(200);
+    expect(await ready.json()).toMatchObject({ status: 'ready', database: 'ok' });
+
     const unauthorized = await fetch(`${baseUrl}/mcp`);
     expect(unauthorized.status).toBe(401);
 
@@ -222,5 +229,48 @@ describe('production HTTP entrypoints', () => {
     await stopServer(child);
     expect(child.exitCode).toBe(0);
     expect(logs()).toContain('shutting down Slab MCP server');
+  }, 20_000);
+
+  it('stays live but not ready when one-shot migrations have not completed', async () => {
+    const port = await getFreePort();
+    const mcpPort = await getFreePort();
+    const databasePath = makeDatabasePath('slab-unmigrated-');
+    const { child, logs } = startServer('src/index.ts', {
+      PORT: String(port),
+      TRACKER_API_KEY: TEST_API_KEY,
+      TRACKER_DB_PATH: databasePath,
+      SKIP_MIGRATIONS: 'true',
+    });
+    const { child: mcpChild, logs: mcpLogs } = startServer('src/mcp/server.ts', {
+      TRACKER_MCP_PORT: String(mcpPort),
+      TRACKER_MCP_MODE: 'http',
+      TRACKER_API_KEY: TEST_API_KEY,
+      TRACKER_DB_PATH: databasePath,
+      SKIP_MIGRATIONS: 'true',
+    });
+    const baseUrl = `http://127.0.0.1:${port}`;
+    const mcpBaseUrl = `http://127.0.0.1:${mcpPort}`;
+    await waitUntilHealthy(`${baseUrl}/health`, child, logs);
+    await waitUntilHealthy(`${mcpBaseUrl}/health`, mcpChild, mcpLogs);
+
+    expect((await fetch(`${baseUrl}/health`)).status).toBe(200);
+    const ready = await fetch(`${baseUrl}/ready`);
+    expect(ready.status).toBe(503);
+    expect(await ready.json()).toMatchObject({
+      status: 'not_ready',
+      database: 'ok',
+      migrations: { ready: false, pending: [1, 2] },
+    });
+    const mcpReady = await fetch(`${mcpBaseUrl}/ready`);
+    expect(mcpReady.status).toBe(503);
+    expect(await mcpReady.json()).toMatchObject({
+      status: 'not_ready',
+      database: 'ok',
+      migrations: { ready: false, pending: [1, 2] },
+    });
+
+    await Promise.all([stopServer(child), stopServer(mcpChild)]);
+    expect(child.exitCode).toBe(0);
+    expect(mcpChild.exitCode).toBe(0);
   }, 20_000);
 });

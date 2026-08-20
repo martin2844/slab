@@ -8,7 +8,7 @@ import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
-import { runMigrations } from '../db/migrate.js';
+import { getMigrationStatus, runMigrations, shouldRunMigrations } from '../db/migrate.js';
 import { closeDb, getDb } from '../db/connection.js';
 import { extractRequestApiKey, getApiKey, parsePort, secretsMatch } from '../config.js';
 import * as projectSvc from '../services/project.js';
@@ -23,7 +23,7 @@ import {
   projectSummary,
 } from './payloads.js';
 
-runMigrations();
+if (shouldRunMigrations()) runMigrations();
 
 // ── Tool Definitions ───────────────────────────────────────
 
@@ -357,8 +357,20 @@ if (MCP_MODE === 'stdio') {
   app.disable('x-powered-by');
 
   app.get('/health', (_req, res) => {
-    getDb().prepare('SELECT 1').get();
     res.json({ status: 'ok' });
+  });
+  app.get('/ready', (_req, res) => {
+    try {
+      getDb().prepare('SELECT 1').get();
+      const migrations = getMigrationStatus();
+      if (!migrations.ready) {
+        res.status(503).json({ status: 'not_ready', database: 'ok', migrations });
+        return;
+      }
+      res.json({ status: 'ready', database: 'ok', migrations });
+    } catch {
+      res.status(503).json({ status: 'not_ready', database: 'error' });
+    }
   });
 
   app.use((req, res, next) => {

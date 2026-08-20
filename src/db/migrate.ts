@@ -6,6 +6,35 @@ import { getDb } from './connection.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const MIGRATIONS_DIR = path.join(__dirname, 'migrations');
 
+function migrationIds(): number[] {
+  return fs.readdirSync(MIGRATIONS_DIR)
+    .filter(file => file.endsWith('.sql'))
+    .sort()
+    .flatMap((file) => {
+      const match = file.match(/^(\d+)/);
+      return match ? [parseInt(match[1], 10)] : [];
+    });
+}
+
+export function getMigrationStatus(): {
+  ready: boolean;
+  expected: number[];
+  applied: number[];
+  pending: number[];
+} {
+  const expected = migrationIds();
+  const db = getDb();
+  const table = db.prepare(
+    "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'migrations'",
+  ).get();
+  const applied = table
+    ? (db.prepare('SELECT id FROM migrations ORDER BY id').all() as Array<{ id: number }>).map(row => row.id)
+    : [];
+  const appliedIds = new Set(applied);
+  const pending = expected.filter(id => !appliedIds.has(id));
+  return { ready: pending.length === 0, expected, applied, pending };
+}
+
 export function runMigrations() {
   const db = getDb();
 
@@ -42,6 +71,10 @@ export function runMigrations() {
   }
 
   console.log('Migrations complete.');
+}
+
+export function shouldRunMigrations(): boolean {
+  return process.env.SKIP_MIGRATIONS !== 'true';
 }
 
 // Allow running directly
