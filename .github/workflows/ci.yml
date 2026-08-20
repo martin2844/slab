@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Lint shell scripts
+        run: shellcheck scripts/*.sh docker-entrypoint.slab.sh
+      - name: Test
+        run: npm test
+      - name: Typecheck and build
+        run: npm run build
+      - name: Build container
+        run: docker build --tag slab:ci .
+      - name: Smoke container
+        env:
+          SLAB_SMOKE_IMAGE: slab:ci
+        run: ./scripts/container-smoke.sh
