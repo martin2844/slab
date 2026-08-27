@@ -16,6 +16,8 @@ import * as issueSvc from '../services/issue.js';
 import * as commentSvc from '../services/comment.js';
 import * as linkSvc from '../services/link.js';
 import * as historySvc from '../services/history.js';
+import type { UpdateIssue } from '../schema/issue.js';
+import type { Issue } from '../types.js';
 import {
   commentMutationResult,
   issueMutationResult,
@@ -26,6 +28,57 @@ import {
 if (shouldRunMigrations()) runMigrations();
 
 // ── Tool Definitions ───────────────────────────────────────
+
+const issueKeyInput = z.string().describe('Issue key to update (e.g. "MYAPP-1")');
+const expectedIssueVersionInput = z.number().int().positive()
+  .describe('Version from the latest issue read');
+const issueMutationAuthorInput = z.string().min(1).max(200).default('mcp-agent')
+  .describe('Who is making this change (recorded in history)');
+
+function changedIssueFields(issue: Issue | null, data: UpdateIssue): string[] {
+  if (!issue) return Object.keys(data);
+  return (Object.keys(data) as Array<keyof UpdateIssue>).filter((field) => {
+    if (field === 'labels') {
+      return JSON.stringify(issue.labels) !== JSON.stringify(data.labels);
+    }
+    return issue[field] !== data[field];
+  });
+}
+
+function updateIssueResult(
+  key: string,
+  expectedVersion: number,
+  author: string,
+  data: UpdateIssue,
+) {
+  try {
+    const changedFields = changedIssueFields(issueSvc.getIssueByKey(key), data);
+    const issue = issueSvc.updateIssue(key, data, expectedVersion, author);
+    if (!issue) {
+      return {
+        content: [{ type: 'text' as const, text: `Issue "${key}" not found` }],
+        isError: true,
+      };
+    }
+    return {
+      content: [{
+        type: 'text' as const,
+        text: JSON.stringify(issueMutationResult(issue, changedFields)),
+      }],
+    };
+  } catch (error) {
+    if (error instanceof issueSvc.IssueVersionConflictError) {
+      return {
+        content: [{
+          type: 'text' as const,
+          text: JSON.stringify({ error: error.toJSON() }),
+        }],
+        isError: true,
+      };
+    }
+    throw error;
+  }
+}
 
 function registerTools(server: McpServer) {
 
@@ -161,23 +214,84 @@ function registerTools(server: McpServer) {
       author: z.string().default('mcp-agent').describe('Who is making this change (recorded in history)'),
     },
     async ({ key, expected_version, author, ...data }) => {
-      try {
-        const issue = issueSvc.updateIssue(key, data, expected_version, author);
-        if (!issue) return { content: [{ type: 'text', text: `Issue "${key}" not found` }], isError: true };
-        return { content: [{ type: 'text', text: JSON.stringify(issueMutationResult(issue, Object.keys(data))) }] };
-      } catch (error) {
-        if (error instanceof issueSvc.IssueVersionConflictError) {
-          return {
-            content: [{
-              type: 'text',
-              text: JSON.stringify({ error: error.toJSON() }),
-            }],
-            isError: true,
-          };
-        }
-        throw error;
-      }
+      return updateIssueResult(key, expected_version, author, data);
     });
+
+  server.tool('assign_issue',
+    'Assign or unassign exactly one issue without changing any other field. ' +
+    'Pass expected_version from the latest issue read; pass null or an empty string to unassign.',
+    {
+      key: issueKeyInput,
+      expected_version: expectedIssueVersionInput,
+      assignee: z.string().max(200).nullable()
+        .describe('New assignee, or null/empty to unassign'),
+      author: issueMutationAuthorInput,
+    },
+    async ({ key, expected_version, assignee, author }) =>
+      updateIssueResult(key, expected_version, author, { assignee: assignee || null }));
+
+  server.tool('set_issue_status',
+    'Change exactly one issue status without changing its assignee, priority, labels, or content. ' +
+    'Setting status to "done" resolves the issue; reopening it clears resolved_at.',
+    {
+      key: issueKeyInput,
+      expected_version: expectedIssueVersionInput,
+      status: z.enum(['new', 'in_progress', 'done'])
+        .describe('New issue status'),
+      author: issueMutationAuthorInput,
+    },
+    async ({ key, expected_version, status, author }) =>
+      updateIssueResult(key, expected_version, author, { status }));
+
+  server.tool('set_issue_priority',
+    'Change exactly one issue priority without changing any other field.',
+    {
+      key: issueKeyInput,
+      expected_version: expectedIssueVersionInput,
+      priority: z.enum(['critical', 'high', 'medium', 'low'])
+        .describe('New issue priority'),
+      author: issueMutationAuthorInput,
+    },
+    async ({ key, expected_version, priority, author }) =>
+      updateIssueResult(key, expected_version, author, { priority }));
+
+  server.tool('edit_issue_content',
+    'Edit an issue type, title, or description without changing its workflow fields. ' +
+    'Include at least one content field.',
+    {
+      key: issueKeyInput,
+      expected_version: expectedIssueVersionInput,
+      type: z.enum(['epic', 'story', 'task', 'bug']).optional()
+        .describe('New issue type'),
+      title: z.string().min(1).max(500).optional().describe('New issue title'),
+      description: z.string().max(50_000).nullable().optional()
+        .describe('New description, or null to clear it'),
+      author: issueMutationAuthorInput,
+    },
+    async ({ key, expected_version, author, ...content }) => {
+      if (Object.values(content).every((value) => value === undefined)) {
+        return {
+          content: [{
+            type: 'text' as const,
+            text: 'At least one of type, title, or description is required',
+          }],
+          isError: true,
+        };
+      }
+      return updateIssueResult(key, expected_version, author, content);
+    });
+
+  server.tool('set_issue_labels',
+    'Replace exactly one issue label set without changing any other field.',
+    {
+      key: issueKeyInput,
+      expected_version: expectedIssueVersionInput,
+      labels: z.array(z.string().max(100)).max(20)
+        .describe('Complete replacement label list; pass an empty list to clear labels'),
+      author: issueMutationAuthorInput,
+    },
+    async ({ key, expected_version, labels, author }) =>
+      updateIssueResult(key, expected_version, author, { labels }));
 
   server.tool('delete_issue',
     'Permanently delete an issue and all its comments, links, and history. This cannot be undone. Pass expected_version from the latest issue read.',

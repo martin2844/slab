@@ -13,7 +13,7 @@ REST API + MCP server. No UI. Built for agents, CLI tools, and automation.
 [![GitHub license](https://img.shields.io/github/license/martin2844/slab?color=blue)](https://github.com/martin2844/slab/blob/master/LICENSE)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D22-green.svg)](https://nodejs.org/)
 [![Docker Pulls](https://img.shields.io/docker/pulls/martin2844/slab.svg)](https://hub.docker.com/r/martin2844/slab)
-[![Tests](https://img.shields.io/badge/tests-70%20passing-brightgreen)](https://github.com/martin2844/slab)
+[![Tests](https://img.shields.io/badge/tests-82%20passing-brightgreen)](https://github.com/martin2844/slab)
 [![Coverage](https://img.shields.io/badge/coverage-89%25-brightgreen)](https://github.com/martin2844/slab)
 
 [Getting Started](#getting-started) · [MCP Integration](#mcp-integration) · [REST API](#rest-api) · [Configuration](#configuration) · [Architecture](#architecture)
@@ -37,7 +37,7 @@ No dashboards. No boards. No sprints. Just a clean API that lets your tools trac
 - **Links** — `blocks`, `depends_on`, `parent_of`, `relates` relationships between issues
 - **History** — immutable audit trail of every field change
 - **Search** — full-text search across all projects
-- **MCP server** — 17 tools for AI agent integration (Claude Code, Cursor, any MCP client)
+- **MCP server** — 22 tools for AI agent integration (Claude Code, Cursor, any MCP client)
 - **REST API** — full CRUD with filtering, pagination, and API key auth
 - **SQLite** — zero-config, single-file database
 - **Docker** — multi-stage Alpine image, docker-compose included
@@ -236,6 +236,11 @@ Add to `~/.kimi/mcp.json`:
 | `list_issues` | List issues with filters (status, type, priority, assignee, labels, search) |
 | `get_issue` | Get issue details by key (e.g. `MYAPP-1`) |
 | `update_issue` | Update issue fields with optimistic concurrency (`expected_version`) |
+| `assign_issue` | Assign or unassign an issue without changing other fields |
+| `set_issue_status` | Change an issue status without changing other fields |
+| `set_issue_priority` | Change an issue priority without changing other fields |
+| `edit_issue_content` | Edit issue type, title, or description without changing workflow fields |
+| `set_issue_labels` | Replace an issue label set without changing other fields |
 | `delete_issue` | Delete an issue permanently with `expected_version` |
 | `search_issues` | Full-text search across all projects |
 | `get_blocked_issues` | List issues blocked by other unfinished issues |
@@ -348,11 +353,12 @@ curl "http://localhost:6970/api/search?q=login" \
 ```
 
 Issue reads expose a monotonically increasing `version`. REST `PATCH`, REST
-`DELETE`, MCP `update_issue`, and MCP `delete_issue` require
-`expected_version` from the latest read. A stale mutation returns HTTP `409` or
-MCP error code `VERSION_CONFLICT`; callers must fetch the issue again and
-reconsider before retrying. Comment creation is append-only and does not
-require an issue version.
+`DELETE`, and the MCP `update_issue`, `assign_issue`, `set_issue_status`,
+`set_issue_priority`, `edit_issue_content`, `set_issue_labels`, and
+`delete_issue` tools require `expected_version` from the latest read. A stale
+mutation returns HTTP `409` or MCP error code `VERSION_CONFLICT`; callers must
+fetch the issue again and reconsider before retrying. Comment creation is
+append-only and does not require an issue version.
 
 ## Configuration
 
@@ -468,7 +474,7 @@ npm install             # Install dependencies
 npm run dev             # REST server with hot reload
 npm run mcp             # MCP server (HTTP mode)
 npm run build           # Compile TypeScript
-npm test                # Run test suite (70 tests)
+npm test                # Run test suite (82 tests)
 npm run test:coverage   # Run tests with coverage report
 npm run test:watch      # Run tests in watch mode
 ```
