@@ -97,8 +97,9 @@ function registerTools(server: McpServer) {
       try {
         const project = projectSvc.createProject(args);
         return { content: [{ type: 'text', text: JSON.stringify(project, null, 2) }] };
-      } catch (e: any) {
-        return { content: [{ type: 'text', text: `Error: ${e.message}` }], isError: true };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Project creation failed';
+        return { content: [{ type: 'text', text: `Error: ${message}` }], isError: true };
       }
     });
 
@@ -177,7 +178,7 @@ function registerTools(server: McpServer) {
       offset: z.number().default(0).describe('Number of results to skip for pagination.'),
     },
     async ({ project_key, ...query }) => {
-      const result = issueSvc.listIssues(project_key, query as any);
+      const result = issueSvc.listIssues(project_key, query);
       return { content: [{ type: 'text', text: JSON.stringify({ ...result, data: result.data.map(issueSummary) }) }] };
     });
 
@@ -497,12 +498,15 @@ if (MCP_MODE === 'stdio') {
   });
   app.use(express.json({ limit: '1mb' }));
 
-  const transports: Record<string, any> = {};
+  const transports: Record<
+    string,
+    StreamableHTTPServerTransport | SSEServerTransport
+  > = {};
 
   // ── Streamable HTTP (protocol version 2025-11-25) ───────
-  app.all('/mcp', async (req: any, res: any) => {
+  app.all('/mcp', async (req: express.Request, res: express.Response) => {
     const sessionId = req.headers['mcp-session-id'] as string | undefined;
-    let transport: any;
+    let transport: StreamableHTTPServerTransport;
 
     try {
       if (sessionId && transports[sessionId] instanceof StreamableHTTPServerTransport) {
@@ -529,7 +533,7 @@ if (MCP_MODE === 'stdio') {
         return;
       }
       await transport.handleRequest(req, res, req.body);
-    } catch (error: any) {
+    } catch (error) {
       console.error('MCP request error:', error);
       if (!res.headersSent) {
         res.status(500).json({
@@ -542,7 +546,7 @@ if (MCP_MODE === 'stdio') {
   });
 
   // ── SSE fallback (protocol version 2024-11-05) ──────────
-  app.get('/sse', async (req: any, res: any) => {
+  app.get('/sse', async (_req: express.Request, res: express.Response) => {
     const transport = new SSEServerTransport('/messages', res);
     transports[transport.sessionId] = transport;
     res.on('close', () => {
@@ -552,7 +556,7 @@ if (MCP_MODE === 'stdio') {
     await server.connect(transport);
   });
 
-  app.post('/messages', async (req: any, res: any) => {
+  app.post('/messages', async (req: express.Request, res: express.Response) => {
     const sessionId = req.query.sessionId as string;
     const transport = transports[sessionId];
     if (!transport || !(transport instanceof SSEServerTransport)) {
@@ -563,8 +567,13 @@ if (MCP_MODE === 'stdio') {
   });
 
   // ── Start ───────────────────────────────────────────────
-  app.use((error: any, _req: express.Request, res: express.Response, next: express.NextFunction) => {
-    if (error?.type === 'entity.too.large') {
+  app.use((error: unknown, _req: express.Request, res: express.Response, next: express.NextFunction) => {
+    if (
+      error !== null &&
+      typeof error === 'object' &&
+      'type' in error &&
+      error.type === 'entity.too.large'
+    ) {
       res.status(413).json({ error: 'Request body too large' });
       return;
     }

@@ -1,9 +1,12 @@
-import { v4 as uuid } from 'uuid';
+import { randomUUID } from 'node:crypto';
 import { getDb } from '../db/connection.js';
 import type { IssueLink } from '../types.js';
 import type { CreateLink } from '../schema/link.js';
 
-function rowToLink(row: any): IssueLink {
+type LinkRow = IssueLink;
+type IssueIdRow = { id: string };
+
+function rowToLink(row: LinkRow): IssueLink {
   return {
     id: row.id,
     source_id: row.source_id,
@@ -15,10 +18,10 @@ function rowToLink(row: any): IssueLink {
 
 export function createLink(issueKey: string, data: CreateLink): IssueLink | null {
   const db = getDb();
-  const source = db.prepare('SELECT id FROM issues WHERE key = ?').get(issueKey) as any;
+  const source = db.prepare('SELECT id FROM issues WHERE key = ?').get(issueKey) as IssueIdRow | undefined;
   if (!source) return null;
 
-  const target = db.prepare('SELECT id FROM issues WHERE key = ?').get(data.target_key) as any;
+  const target = db.prepare('SELECT id FROM issues WHERE key = ?').get(data.target_key) as IssueIdRow | undefined;
   if (!target) return null;
 
   if (source.id === target.id) return null;
@@ -29,7 +32,7 @@ export function createLink(issueKey: string, data: CreateLink): IssueLink | null
   ).get(source.id, target.id, data.type);
   if (existing) return null;
 
-  const id = uuid();
+  const id = randomUUID();
   const now = new Date().toISOString();
 
   db.prepare(
@@ -41,15 +44,15 @@ export function createLink(issueKey: string, data: CreateLink): IssueLink | null
 
 export function listLinks(issueKey: string): { outward: IssueLink[]; inward: IssueLink[] } | null {
   const db = getDb();
-  const issue = db.prepare('SELECT id FROM issues WHERE key = ?').get(issueKey) as any;
+  const issue = db.prepare('SELECT id FROM issues WHERE key = ?').get(issueKey) as IssueIdRow | undefined;
   if (!issue) return null;
 
-  const outward = db.prepare('SELECT * FROM issue_links WHERE source_id = ? ORDER BY created_at DESC')
-    .all(issue.id).map(rowToLink);
-  const inward = db.prepare('SELECT * FROM issue_links WHERE target_id = ? ORDER BY created_at DESC')
-    .all(issue.id).map(rowToLink);
+  const outwardRows = db.prepare('SELECT * FROM issue_links WHERE source_id = ? ORDER BY created_at DESC')
+    .all(issue.id) as LinkRow[];
+  const inwardRows = db.prepare('SELECT * FROM issue_links WHERE target_id = ? ORDER BY created_at DESC')
+    .all(issue.id) as LinkRow[];
 
-  return { outward, inward };
+  return { outward: outwardRows.map(rowToLink), inward: inwardRows.map(rowToLink) };
 }
 
 export function deleteLink(linkId: string): boolean {

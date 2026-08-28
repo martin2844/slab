@@ -1,10 +1,20 @@
-import { v4 as uuid } from 'uuid';
+import { randomUUID } from 'node:crypto';
+import type Database from 'better-sqlite3';
 import { getDb } from '../db/connection.js';
 import type { Issue } from '../types.js';
 import type { CreateIssue, UpdateIssue, ListIssuesQuery } from '../schema/issue.js';
 import { recordHistory } from './history.js';
 
-function rowToIssue(row: any): Issue {
+interface IssueRow extends Omit<Issue, 'labels'> {
+  labels: string;
+}
+
+type ProjectIdRow = { id: string };
+type CountRow = { count: number };
+type MaxIssueNumberRow = { max_num: number | null };
+type SqlValue = string | number | null;
+
+function rowToIssue(row: IssueRow): Issue {
   return {
     id: row.id,
     project_id: row.project_id,
@@ -57,23 +67,23 @@ export class IssueVersionConflictError extends Error {
   }
 }
 
-function getNextIssueNumber(db: any, projectId: string): number {
+function getNextIssueNumber(db: Database.Database, projectId: string): number {
   const row = db.prepare(
     `SELECT MAX(CAST(SUBSTR(key, INSTR(key, '-') + 1) AS INTEGER)) as max_num FROM issues WHERE project_id = ?`
-  ).get(projectId) as any;
+  ).get(projectId) as MaxIssueNumberRow;
   return (row?.max_num || 0) + 1;
 }
 
 export function createIssue(projectKey: string, data: CreateIssue): Issue | null {
   const db = getDb();
   const create = db.transaction(() => {
-    const project = db.prepare('SELECT * FROM projects WHERE key = ?').get(projectKey) as any;
+    const project = db.prepare('SELECT id FROM projects WHERE key = ?').get(projectKey) as ProjectIdRow | undefined;
     if (!project) return null;
 
     const type = data.type || 'task';
     const priority = data.priority || 'medium';
     const labels = JSON.stringify(data.labels || []);
-    const id = uuid();
+    const id = randomUUID();
     const number = getNextIssueNumber(db, project.id);
     const key = `${projectKey}-${number}`;
     const now = new Date().toISOString();
@@ -92,23 +102,23 @@ export function createIssue(projectKey: string, data: CreateIssue): Issue | null
 
 export function getIssueByKey(key: string): Issue | null {
   const db = getDb();
-  const row = db.prepare('SELECT * FROM issues WHERE key = ?').get(key);
+  const row = db.prepare('SELECT * FROM issues WHERE key = ?').get(key) as IssueRow | undefined;
   return row ? rowToIssue(row) : null;
 }
 
 export function getIssueById(id: string): Issue | null {
   const db = getDb();
-  const row = db.prepare('SELECT * FROM issues WHERE id = ?').get(id);
+  const row = db.prepare('SELECT * FROM issues WHERE id = ?').get(id) as IssueRow | undefined;
   return row ? rowToIssue(row) : null;
 }
 
 export function listIssues(projectKey: string, query: ListIssuesQuery): { data: Issue[]; total: number } {
   const db = getDb();
-  const project = db.prepare('SELECT id FROM projects WHERE key = ?').get(projectKey) as any;
+  const project = db.prepare('SELECT id FROM projects WHERE key = ?').get(projectKey) as ProjectIdRow | undefined;
   if (!project) return { data: [], total: 0 };
 
   const conditions = ['i.project_id = ?'];
-  const params: any[] = [project.id];
+  const params: SqlValue[] = [project.id];
 
   if (query.status?.length) {
     conditions.push(`i.status IN (${query.status.map(() => '?').join(', ')})`);
@@ -140,11 +150,11 @@ export function listIssues(projectKey: string, query: ListIssuesQuery): { data: 
 
   const where = conditions.join(' AND ');
 
-  const total = (db.prepare(`SELECT COUNT(*) as count FROM issues i WHERE ${where}`).get(...params) as any).count;
+  const total = (db.prepare(`SELECT COUNT(*) as count FROM issues i WHERE ${where}`).get(...params) as CountRow).count;
 
   const rows = db.prepare(
     `SELECT i.* FROM issues i WHERE ${where} ORDER BY i.created_at DESC LIMIT ? OFFSET ?`
-  ).all(...params, query.limit ?? 50, query.offset ?? 0);
+  ).all(...params, query.limit ?? 50, query.offset ?? 0) as IssueRow[];
 
   return { data: rows.map(rowToIssue), total };
 }
@@ -161,14 +171,14 @@ export function updateIssue(
     if (!issue) return null;
 
     const fields: string[] = [];
-    const values: any[] = [];
+    const values: SqlValue[] = [];
     const historyEntries: { field: string; old: string | null; new: string | null }[] = [];
 
     const trackable = ['type', 'title', 'description', 'status', 'priority', 'assignee'] as const;
 
     for (const field of trackable) {
       if (data[field as keyof UpdateIssue] !== undefined) {
-        const newValue = data[field as keyof UpdateIssue] as any;
+        const newValue = data[field] ?? null;
         const oldValue = field === 'assignee' ? issue[field] :
                          field === 'description' ? issue[field] :
                          String(issue[field as keyof Issue]);
@@ -255,11 +265,11 @@ export function searchIssues(query: string, limit: number = 50, offset: number =
 
   const total = (db.prepare(
     `SELECT COUNT(*) as count FROM issues WHERE title LIKE ? OR description LIKE ?`
-  ).get(term, term) as any).count;
+  ).get(term, term) as CountRow).count;
 
   const rows = db.prepare(
     `SELECT * FROM issues WHERE title LIKE ? OR description LIKE ? ORDER BY updated_at DESC LIMIT ? OFFSET ?`
-  ).all(term, term, limit, offset);
+  ).all(term, term, limit, offset) as IssueRow[];
 
   return { data: rows.map(rowToIssue), total };
 }
@@ -274,6 +284,6 @@ export function getBlockedIssues(): Issue[] {
       SELECT 1 FROM issues blocker WHERE blocker.id = l.source_id AND blocker.status != 'done'
     )
     ORDER BY i.updated_at DESC
-  `).all();
+  `).all() as IssueRow[];
   return rows.map(rowToIssue);
 }

@@ -1,8 +1,11 @@
-import { v4 as uuid } from 'uuid';
+import { randomUUID } from 'node:crypto';
 import { getDb } from '../db/connection.js';
 import type { HistoryEntry } from '../types.js';
 
-function rowToHistory(row: any): HistoryEntry {
+type HistoryRow = HistoryEntry;
+type IssueIdRow = { id: string };
+
+function rowToHistory(row: HistoryRow): HistoryEntry {
   return {
     id: row.id,
     issue_id: row.issue_id,
@@ -16,7 +19,7 @@ function rowToHistory(row: any): HistoryEntry {
 
 export function recordHistory(issueId: string, field: string, oldValue: string | null, newValue: string | null, author: string): void {
   const db = getDb();
-  const id = uuid();
+  const id = randomUUID();
   const now = new Date().toISOString();
   db.prepare(
     `INSERT INTO history (id, issue_id, field, old_value, new_value, author, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`
@@ -25,10 +28,10 @@ export function recordHistory(issueId: string, field: string, oldValue: string |
 
 export function getHistory(issueKey: string): HistoryEntry[] | null {
   const db = getDb();
-  const issue = db.prepare('SELECT id FROM issues WHERE key = ?').get(issueKey) as any;
+  const issue = db.prepare('SELECT id FROM issues WHERE key = ?').get(issueKey) as IssueIdRow | undefined;
   if (!issue) return null;
 
-  return db.prepare('SELECT * FROM history WHERE issue_id = ? ORDER BY created_at ASC')
-    .all(issue.id)
-    .map(rowToHistory);
+  const rows = db.prepare('SELECT * FROM history WHERE issue_id = ? ORDER BY created_at ASC')
+    .all(issue.id) as HistoryRow[];
+  return rows.map(rowToHistory);
 }

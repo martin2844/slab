@@ -1,9 +1,12 @@
-import { v4 as uuid } from 'uuid';
+import { randomUUID } from 'node:crypto';
 import { getDb } from '../db/connection.js';
 import type { Comment } from '../types.js';
 import type { CreateComment } from '../schema/comment.js';
 
-function rowToComment(row: any): Comment {
+type CommentRow = Comment;
+type IssueIdRow = { id: string };
+
+function rowToComment(row: CommentRow): Comment {
   return {
     id: row.id,
     issue_id: row.issue_id,
@@ -15,10 +18,10 @@ function rowToComment(row: any): Comment {
 
 export function addComment(issueKey: string, data: CreateComment): Comment | null {
   const db = getDb();
-  const issue = db.prepare('SELECT id FROM issues WHERE key = ?').get(issueKey) as any;
+  const issue = db.prepare('SELECT id FROM issues WHERE key = ?').get(issueKey) as IssueIdRow | undefined;
   if (!issue) return null;
 
-  const id = uuid();
+  const id = randomUUID();
   const now = new Date().toISOString();
 
   db.prepare(
@@ -30,17 +33,17 @@ export function addComment(issueKey: string, data: CreateComment): Comment | nul
 
 export function listComments(issueKey: string): Comment[] | null {
   const db = getDb();
-  const issue = db.prepare('SELECT id FROM issues WHERE key = ?').get(issueKey) as any;
+  const issue = db.prepare('SELECT id FROM issues WHERE key = ?').get(issueKey) as IssueIdRow | undefined;
   if (!issue) return null;
 
-  return db.prepare('SELECT * FROM comments WHERE issue_id = ? ORDER BY created_at ASC')
-    .all(issue.id)
-    .map(rowToComment);
+  const rows = db.prepare('SELECT * FROM comments WHERE issue_id = ? ORDER BY created_at ASC')
+    .all(issue.id) as CommentRow[];
+  return rows.map(rowToComment);
 }
 
 export function deleteComment(issueKey: string, commentId: string): boolean {
   const db = getDb();
-  const issue = db.prepare('SELECT id FROM issues WHERE key = ?').get(issueKey) as any;
+  const issue = db.prepare('SELECT id FROM issues WHERE key = ?').get(issueKey) as IssueIdRow | undefined;
   if (!issue) return false;
 
   const result = db.prepare('DELETE FROM comments WHERE id = ? AND issue_id = ?').run(commentId, issue.id);

@@ -1,9 +1,12 @@
-import { v4 as uuid } from 'uuid';
+import { randomUUID } from 'node:crypto';
 import { getDb } from '../db/connection.js';
 import type { Project } from '../types.js';
 import type { CreateProject, UpdateProject } from '../schema/project.js';
 
-function rowToProject(row: any): Project {
+type ProjectRow = Project;
+type SqlValue = string | number | null;
+
+function rowToProject(row: ProjectRow): Project {
   return {
     id: row.id,
     key: row.key,
@@ -16,7 +19,7 @@ function rowToProject(row: any): Project {
 
 export function createProject(data: CreateProject): Project {
   const db = getDb();
-  const id = uuid();
+  const id = randomUUID();
   const now = new Date().toISOString();
   db.prepare(
     `INSERT INTO projects (id, key, name, description, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`
@@ -26,18 +29,19 @@ export function createProject(data: CreateProject): Project {
 
 export function listProjects(): Project[] {
   const db = getDb();
-  return db.prepare('SELECT * FROM projects ORDER BY created_at DESC').all().map(rowToProject);
+  const rows = db.prepare('SELECT * FROM projects ORDER BY created_at DESC').all() as ProjectRow[];
+  return rows.map(rowToProject);
 }
 
 export function getProjectByKey(key: string): Project | null {
   const db = getDb();
-  const row = db.prepare('SELECT * FROM projects WHERE key = ?').get(key);
+  const row = db.prepare('SELECT * FROM projects WHERE key = ?').get(key) as ProjectRow | undefined;
   return row ? rowToProject(row) : null;
 }
 
 export function getProjectById(id: string): Project | null {
   const db = getDb();
-  const row = db.prepare('SELECT * FROM projects WHERE id = ?').get(id);
+  const row = db.prepare('SELECT * FROM projects WHERE id = ?').get(id) as ProjectRow | undefined;
   return row ? rowToProject(row) : null;
 }
 
@@ -47,7 +51,7 @@ export function updateProject(key: string, data: UpdateProject): Project | null 
   if (!project) return null;
 
   const fields: string[] = [];
-  const values: any[] = [];
+  const values: SqlValue[] = [];
 
   if (data.name !== undefined) { fields.push('name = ?'); values.push(data.name); }
   if (data.description !== undefined) { fields.push('description = ?'); values.push(data.description); }
