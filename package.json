@@ -1,6 +1,7 @@
 {
   "name": "slab",
   "version": "0.1.0",
+  "license": "MIT",
   "description": "Barebones issue tracking — REST + MCP, no UI",
   "type": "module",
   "scripts": {
